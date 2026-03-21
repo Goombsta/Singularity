@@ -1,5 +1,6 @@
 import { useRef, useEffect, useCallback, useState } from 'react'
 import Hls from 'hls.js'
+import mpegts from 'mpegts.js'
 import { motion } from 'framer-motion'
 import { usePlayerStore } from '../stores/playerStore'
 import { usePlaylistStore } from '../stores/playlistStore'
@@ -14,6 +15,7 @@ interface MiniPlayerProps {
 function MiniPlayer({ panel, allChannels }: MiniPlayerProps): JSX.Element {
   const videoRef = useRef<HTMLVideoElement>(null)
   const hlsRef = useRef<Hls | null>(null)
+  const mpegtsRef = useRef<mpegts.Player | null>(null)
   const { setPrimaryPanel, togglePanelMute, setMultiviewChannel } = usePlayerStore()
 
   // Category → channel two-step selector
@@ -29,19 +31,45 @@ function MiniPlayer({ panel, allChannels }: MiniPlayerProps): JSX.Element {
       const video = videoRef.current
       if (!video) return
 
+      // Destroy existing players
       if (hlsRef.current) {
         hlsRef.current.destroy()
         hlsRef.current = null
       }
+      if (mpegtsRef.current) {
+        mpegtsRef.current.destroy()
+        mpegtsRef.current = null
+      }
+      video.src = ''
 
-      if (Hls.isSupported() && (ch.url.includes('.m3u8') || ch.url.includes('/live/'))) {
+      const url = ch.url
+      const isHls = url.includes('.m3u8') || (url.includes('/live/') && !url.endsWith('.ts'))
+      const isMpegTs = url.endsWith('.ts')
+
+      if (Hls.isSupported() && isHls) {
         const hls = new Hls({ lowLatencyMode: true, maxBufferLength: 30 })
         hlsRef.current = hls
-        hls.loadSource(ch.url)
+        hls.loadSource(url)
         hls.attachMedia(video)
         hls.on(Hls.Events.MANIFEST_PARSED, () => video.play().catch(() => {}))
+      } else if (isMpegTs && mpegts.isSupported()) {
+        const player = mpegts.createPlayer(
+          { type: 'mpegts', url, isLive: true },
+          {
+            enableWorker: false,
+            liveBufferLatencyChasing: false,
+            autoCleanupSourceBuffer: true,
+            autoCleanupMinBackwardDuration: 3,
+            autoCleanupMaxBackwardDuration: 6,
+            fixAudioTimestampGap: false,
+          }
+        )
+        mpegtsRef.current = player
+        player.attachMediaElement(video)
+        player.load()
+        video.addEventListener('canplay', () => video.play().catch(() => {}), { once: true })
       } else {
-        video.src = ch.url
+        video.src = url
         video.play().catch(() => {})
       }
 
@@ -59,6 +87,7 @@ function MiniPlayer({ panel, allChannels }: MiniPlayerProps): JSX.Element {
   useEffect(() => {
     return () => {
       if (hlsRef.current) hlsRef.current.destroy()
+      if (mpegtsRef.current) mpegtsRef.current.destroy()
     }
   }, [])
 
@@ -308,7 +337,14 @@ function getVisiblePanelCount(layout: MultiviewLayout): number {
 
 export default function Multiview(): JSX.Element {
   const { multiviewPanels, multiviewLayout, toggleMultiview, setMultiviewLayout } = usePlayerStore()
-  const { filteredChannels } = usePlaylistStore()
+  const { playlists, activePlaylistId } = usePlaylistStore()
+
+  // Use the raw unfiltered live channels so Live TV search/group selection doesn't limit Multiview
+  const filteredChannels = (() => {
+    const playlist = playlists.find((p) => p.id === activePlaylistId)
+    const all = playlist?.channels || []
+    return all.filter((c) => !c.streamType || c.streamType === 'live')
+  })()
 
   const visibleCount = getVisiblePanelCount(multiviewLayout)
   const visiblePanels = multiviewPanels.slice(0, visibleCount)
