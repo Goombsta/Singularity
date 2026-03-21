@@ -3,15 +3,15 @@
 I am not a coder or anything close to it. IPTV players on Windows Desktop leave a lot to be desired. Decided to try and vibecode a player with features that IPTV connoisseur's want.
 
 ## Features
--Dark Mode option
--M3U and Xtream Codes
--EPG - Load custom EPG's
--Allow multiple playlists
--Multiview 4 screens
--Ability to view and select the last 5 channels watched.
--Playlist Editor
--Allows External Players
--Channel and Category Search functions
+1. Dark Mode option
+2. M3U and Xtream Codes
+3. EPG - Load custom EPG's
+4. Allow multiple playlists
+5. Multiview 4 screens
+6. Ability to view and select the last 5 channels watched.
+7. Playlist Editor
+8. Allows External Players
+9. Channel and Category Search functions
 
 ## Future Enhancements
 - Playlist editor - Clean up the layout a little bit.
