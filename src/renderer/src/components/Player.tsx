@@ -373,7 +373,10 @@ export default function Player(): JSX.Element {
           isLive: true,
         }, {
           enableWorker: false,
-          liveBufferLatencyChasing: true,
+          liveBufferLatencyChasing: false, // disabling prevents the 1-second stutter/skip
+          autoCleanupSourceBuffer: true,   // prevent SourceBuffer growing unbounded
+          autoCleanupMinBackwardDuration: 3,
+          autoCleanupMaxBackwardDuration: 6,
           fixAudioTimestampGap: false,
         })
         mpegtsRef.current = player
