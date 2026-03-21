@@ -261,15 +261,17 @@ export default function Player(): JSX.Element {
     video.muted = isMuted
 
     // ── URL type detection ─────────────────────────────────────────
-    // HLS: .m3u8 or Xtream live streams (/live/ path)
-    // MPEG-TS raw: .ts
-    // Everything else (VOD .mp4/.mkv, series episodes, generic direct): play natively.
-    // We intentionally do NOT attempt a .m3u8 variant for Xtream VOD because most
-    // servers do not expose HLS for /movie/ or /series/ paths, causing timeout errors.
-    const isHls = effectiveUrl.includes('.m3u8') || effectiveUrl.includes('/live/')
-    const isTs = effectiveUrl.endsWith('.ts')
+    // HLS.js handles: .m3u8 manifests, or /live/ URLs with no file extension
+    //   (extensionless /live/ URLs let the server decide — usually returns HLS)
+    // Native <video> handles: everything else — .ts, .mp4, .mkv, direct streams.
+    //
+    // IMPORTANT: .ts URLs are raw MPEG-TS segments, NOT HLS manifests.
+    // Sending them to HLS.js causes a manifest parse error because HLS.js
+    // expects M3U8 text, not binary transport stream data. Route to native instead.
+    const isHls = effectiveUrl.includes('.m3u8') ||
+      (effectiveUrl.includes('/live/') && !effectiveUrl.endsWith('.ts'))
 
-    if ((isHls || isTs) && Hls.isSupported()) {
+    if (isHls && Hls.isSupported()) {
       // ── HLS / TS playback via HLS.js ───────────────────────────
       const hls = new Hls({
         enableWorker: true,
