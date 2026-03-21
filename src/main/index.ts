@@ -6,6 +6,8 @@ import { registerIpcHandlers } from './ipc'
 let mainWindow: BrowserWindow | null = null
 
 function createWindow(): void {
+  const isMac = process.platform === 'darwin'
+
   mainWindow = new BrowserWindow({
     width: 1400,
     height: 900,
@@ -13,7 +15,8 @@ function createWindow(): void {
     minHeight: 600,
     show: false,
     frame: false,
-    titleBarStyle: 'hidden',
+    // hiddenInset on macOS: native traffic lights appear inside the titlebar area
+    titleBarStyle: isMac ? 'hiddenInset' : 'hidden',
     backgroundColor: '#f0f2f5',
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),

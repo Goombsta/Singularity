@@ -2,6 +2,9 @@ import { contextBridge, ipcRenderer } from 'electron'
 import { electronAPI } from '@electron-toolkit/preload'
 
 const api = {
+  // Platform string — lets renderer show/hide platform-specific UI (e.g. hide custom window
+  // controls on macOS where native traffic lights are used instead)
+  platform: process.platform,
   // Window
   window: {
     minimize: () => ipcRenderer.invoke('window:minimize'),

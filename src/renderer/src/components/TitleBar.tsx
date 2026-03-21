@@ -3,6 +3,8 @@ import { motion } from 'framer-motion'
 
 export default function TitleBar(): JSX.Element {
   const [isMax, setIsMax] = useState(false)
+  // On macOS, native traffic lights (close/min/max) are shown by the OS — hide our custom buttons
+  const isMac = window.api.platform === 'darwin'
 
   useEffect(() => {
     window.api.window.isMaximized().then(setIsMax)
@@ -46,59 +48,61 @@ export default function TitleBar(): JSX.Element {
         </span>
       </div>
 
-      {/* Window controls */}
-      <div
-        className="flex items-center gap-1"
-        // @ts-ignore - Electron no-drag region
-        style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
-      >
-        {/* Minimize */}
-        <motion.button
-          className="btn w-7 h-7 rounded-md"
-          style={{ background: 'transparent', color: 'var(--text-secondary)' }}
-          whileHover={{ background: 'rgba(0,0,0,0.06)' }}
-          whileTap={{ scale: 0.9 }}
-          onClick={() => window.api.window.minimize()}
+      {/* Window controls — hidden on macOS (native traffic lights used instead) */}
+      {!isMac && (
+        <div
+          className="flex items-center gap-1"
+          // @ts-ignore - Electron no-drag region
+          style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
         >
-          <svg width="10" height="2" viewBox="0 0 10 2" fill="currentColor">
-            <rect width="10" height="2" rx="1"/>
-          </svg>
-        </motion.button>
-
-        {/* Maximize */}
-        <motion.button
-          className="btn w-7 h-7 rounded-md"
-          style={{ background: 'transparent', color: 'var(--text-secondary)' }}
-          whileHover={{ background: 'rgba(0,0,0,0.06)' }}
-          whileTap={{ scale: 0.9 }}
-          onClick={handleMaximize}
-        >
-          {isMax ? (
-            <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.5">
-              <rect x="3" y="1" width="6" height="6" rx="1"/>
-              <path d="M1 3v5a1 1 0 001 1h5"/>
+          {/* Minimize */}
+          <motion.button
+            className="btn w-7 h-7 rounded-md"
+            style={{ background: 'transparent', color: 'var(--text-secondary)' }}
+            whileHover={{ background: 'rgba(0,0,0,0.06)' }}
+            whileTap={{ scale: 0.9 }}
+            onClick={() => window.api.window.minimize()}
+          >
+            <svg width="10" height="2" viewBox="0 0 10 2" fill="currentColor">
+              <rect width="10" height="2" rx="1"/>
             </svg>
-          ) : (
-            <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.5">
-              <rect x="1" y="1" width="8" height="8" rx="1"/>
-            </svg>
-          )}
-        </motion.button>
+          </motion.button>
 
-        {/* Close */}
-        <motion.button
-          className="btn w-7 h-7 rounded-md"
-          style={{ background: 'transparent', color: 'var(--text-secondary)' }}
-          whileHover={{ background: 'rgba(224,82,82,0.12)', color: 'var(--danger)' }}
-          whileTap={{ scale: 0.9 }}
-          onClick={() => window.api.window.close()}
-        >
-          <svg width="10" height="10" viewBox="0 0 10 10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
-            <line x1="1" y1="1" x2="9" y2="9"/>
-            <line x1="9" y1="1" x2="1" y2="9"/>
-          </svg>
-        </motion.button>
-      </div>
+          {/* Maximize */}
+          <motion.button
+            className="btn w-7 h-7 rounded-md"
+            style={{ background: 'transparent', color: 'var(--text-secondary)' }}
+            whileHover={{ background: 'rgba(0,0,0,0.06)' }}
+            whileTap={{ scale: 0.9 }}
+            onClick={handleMaximize}
+          >
+            {isMax ? (
+              <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.5">
+                <rect x="3" y="1" width="6" height="6" rx="1"/>
+                <path d="M1 3v5a1 1 0 001 1h5"/>
+              </svg>
+            ) : (
+              <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.5">
+                <rect x="1" y="1" width="8" height="8" rx="1"/>
+              </svg>
+            )}
+          </motion.button>
+
+          {/* Close */}
+          <motion.button
+            className="btn w-7 h-7 rounded-md"
+            style={{ background: 'transparent', color: 'var(--text-secondary)' }}
+            whileHover={{ background: 'rgba(224,82,82,0.12)', color: 'var(--danger)' }}
+            whileTap={{ scale: 0.9 }}
+            onClick={() => window.api.window.close()}
+          >
+            <svg width="10" height="10" viewBox="0 0 10 10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
+              <line x1="1" y1="1" x2="9" y2="9"/>
+              <line x1="9" y1="1" x2="1" y2="9"/>
+            </svg>
+          </motion.button>
+        </div>
+      )}
     </div>
   )
 }

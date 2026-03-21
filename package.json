@@ -9,6 +9,7 @@
     "dev": "electron-vite dev",
     "build": "electron-vite build && electron-builder",
     "build:win": "electron-vite build && electron-builder --win",
+    "build:mac": "electron-vite build && electron-builder --mac",
     "preview": "electron-vite preview",
     "typecheck": "tsc --noEmit"
   },

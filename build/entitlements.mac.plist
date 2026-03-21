@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <!-- Required for Electron's JIT compilation (V8 JavaScript engine) -->
+  <key>com.apple.security.cs.allow-jit</key>
+  <true/>
+  <!-- Required for Electron's renderer process -->
+  <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+  <true/>
+  <!-- Allow outbound network connections (stream fetching, EPG, Xtream API) -->
+  <key>com.apple.security.network.client</key>
+  <true/>
+  <!-- Allow reading/writing user-selected files (M3U local files) -->
+  <key>com.apple.security.files.user-selected.read-write</key>
+  <true/>
+</dict>
+</plist>

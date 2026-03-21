@@ -96,31 +96,51 @@ export function registerIpcHandlers(): void {
     }
   })
 
-  // Detect installed external players
+  // Detect installed external players — paths are platform-specific
   ipcMain.handle('player:detectExternal', () => {
-    const candidates = [
-      {
-        name: 'VLC',
-        paths: [
-          'C:\\Program Files\\VideoLAN\\VLC\\vlc.exe',
-          'C:\\Program Files (x86)\\VideoLAN\\VLC\\vlc.exe',
-        ],
-      },
-      {
-        name: 'MPC-HC',
-        paths: [
-          'C:\\Program Files\\MPC-HC\\mpc-hc64.exe',
-          'C:\\Program Files (x86)\\MPC-HC\\mpc-hc.exe',
-        ],
-      },
-      {
-        name: 'PotPlayer',
-        paths: [
-          'C:\\Program Files\\DAUM\\PotPlayer\\PotPlayerMini64.exe',
-          'C:\\Program Files (x86)\\DAUM\\PotPlayer\\PotPlayerMini.exe',
-        ],
-      },
-    ]
+    const isMac = process.platform === 'darwin'
+
+    const candidates = isMac
+      ? [
+          {
+            name: 'IINA',
+            paths: ['/Applications/IINA.app/Contents/MacOS/iina'],
+          },
+          {
+            name: 'VLC',
+            paths: ['/Applications/VLC.app/Contents/MacOS/VLC'],
+          },
+          {
+            name: 'Infuse',
+            paths: [
+              '/Applications/Infuse 7.app/Contents/MacOS/Infuse',
+              '/Applications/Infuse.app/Contents/MacOS/Infuse',
+            ],
+          },
+        ]
+      : [
+          {
+            name: 'VLC',
+            paths: [
+              'C:\\Program Files\\VideoLAN\\VLC\\vlc.exe',
+              'C:\\Program Files (x86)\\VideoLAN\\VLC\\vlc.exe',
+            ],
+          },
+          {
+            name: 'MPC-HC',
+            paths: [
+              'C:\\Program Files\\MPC-HC\\mpc-hc64.exe',
+              'C:\\Program Files (x86)\\MPC-HC\\mpc-hc.exe',
+            ],
+          },
+          {
+            name: 'PotPlayer',
+            paths: [
+              'C:\\Program Files\\DAUM\\PotPlayer\\PotPlayerMini64.exe',
+              'C:\\Program Files (x86)\\DAUM\\PotPlayer\\PotPlayerMini.exe',
+            ],
+          },
+        ]
 
     const detected: { name: string; path: string }[] = []
     for (const player of candidates) {

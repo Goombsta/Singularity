@@ -26,3 +26,22 @@ nsis:
   createDesktopShortcut: true
   createStartMenuShortcut: true
   shortcutName: Singularity
+mac:
+  target:
+    - target: dmg
+      arch:
+        - arm64
+    - target: zip
+      arch:
+        - arm64
+  icon: Singularity.png
+  category: public.app-category.entertainment
+  darkModeSupport: true
+  # identity: null = unsigned build; add Apple Developer cert later for notarization
+  identity: null
+  entitlementsInherit: build/entitlements.mac.plist
+dmg:
+  title: Singularity
+  window:
+    width: 540
+    height: 380
