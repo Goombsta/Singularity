@@ -359,39 +359,41 @@ export default function Player(): JSX.Element {
         setError('Stream error — the channel may be offline or temporarily unavailable.')
         setLoading(false)
       })
-    } else if (isMpegTs && mpegts.isSupported()) {
+    } else if (isMpegTs) {
       // ── mpegts.js — raw MPEG-TS over HTTP ────────────────────────
       // Handles live IPTV .ts streams that HLS.js can't manifest-load
-      // and Chromium can't decode natively (video/mp2t was removed in Chrome 47).
-      const player = mpegts.createPlayer({
-        type: 'mpegts',
-        url: effectiveUrl,
-        isLive: true,
-      }, {
-        enableWorker: true,
-        liveBufferLatencyChasing: true,
-        liveSync: true,
-      })
-      mpegtsRef.current = player
-      player.attachMediaElement(video)
-      player.load()
-
-      player.on(mpegts.Events.MEDIA_INFO, () => {
-        if (cancelled) return
-        setLoading(false)
-        setIsLive(true)
-        video.play().catch((e: Error) => {
-          if (cancelled || e.name === 'AbortError') return
-          setError(String(e))
+      // and Chromium can't decode natively (video/mp2t removed in Chrome 47).
+      // Do NOT gate on mpegts.isSupported() — it checks MediaSource.isTypeSupported
+      // which can return false in Electron even when MSE is fully functional.
+      // Disable worker: Electron's renderer sandbox can block worker creation.
+      try {
+        const player = mpegts.createPlayer({
+          type: 'mpegts',
+          url: effectiveUrl,
+          isLive: true,
+        }, {
+          enableWorker: false,
+          liveBufferLatencyChasing: true,
+          fixAudioTimestampGap: false,
         })
-      })
+        mpegtsRef.current = player
+        player.attachMediaElement(video)
+        player.load()
+        setIsLive(true)
 
-      player.on(mpegts.Events.ERROR, (_type: unknown, data: unknown) => {
-        if (cancelled) return
-        const info = data as { code?: string; msg?: string }
-        setError(info?.msg || 'Stream error — the channel may be offline.')
+        // mpegts.Events.ERROR signature: (errorType, errorDetail, errorInfo)
+        player.on(mpegts.Events.ERROR, (_errorType: unknown, errorDetail: unknown, errorInfo: unknown) => {
+          if (cancelled) return
+          const info = errorInfo as { msg?: string } | null
+          const detail = typeof errorDetail === 'string' ? errorDetail : ''
+          setError(info?.msg || detail || 'Stream error — the channel may be offline.')
+          setLoading(false)
+        })
+      } catch (e) {
+        // mpegts.js failed to initialize — surface error and let user open externally
+        setError('Stream format not supported in browser player — try opening in VLC.')
         setLoading(false)
-      })
+      }
 
     } else {
       // ── Native video element (MP4, MKV, direct streams) ──────────
