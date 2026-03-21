@@ -199,6 +199,7 @@ export default function PlaylistEditor(): JSX.Element {
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [bulkGroup, setBulkGroup] = useState('')
   const [showBulk, setShowBulk] = useState(false)
+  const [groupSearch, setGroupSearch] = useState('')
 
   // Virtualized list sizing
   const containerRef = useRef<HTMLDivElement>(null)
@@ -302,59 +303,108 @@ export default function PlaylistEditor(): JSX.Element {
         </div>
       </div>
 
-      {/* Group tabs */}
-      <div
-        className="flex gap-1 px-3 py-2 overflow-x-auto flex-shrink-0"
-        style={{ borderBottom: '1px solid var(--border-hard)' }}
-      >
-        <button
-          className="badge cursor-pointer whitespace-nowrap"
-          onClick={() => setActiveGroup(null)}
-          style={!activeGroup ? { background: 'rgba(91,127,166,0.2)', color: 'var(--accent)' } : {}}
+      {/* Body: category column + channel list */}
+      <div className="flex flex-1 overflow-hidden">
+
+        {/* Left: category column */}
+        <div
+          className="flex flex-col flex-shrink-0 overflow-hidden"
+          style={{ width: 220, borderRight: '1px solid var(--border-hard)', background: 'var(--bg-surface)' }}
         >
-          All
-        </button>
-        {groups.filter((g) => g !== 'Favorites').map((g) => (
-          <button
-            key={g}
-            className="badge cursor-pointer whitespace-nowrap"
-            onClick={() => setActiveGroup(g)}
-            style={activeGroup === g ? { background: 'rgba(91,127,166,0.2)', color: 'var(--accent)' } : {}}
-          >
-            {g}
-          </button>
-        ))}
-      </div>
+          {/* Group search */}
+          <div className="px-2 pt-2 pb-1 flex-shrink-0">
+            <div className="relative">
+              <svg
+                className="absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none"
+                width="10" height="10" viewBox="0 0 10 10" fill="none"
+                stroke="var(--text-secondary)" strokeWidth="1.5"
+              >
+                <circle cx="4" cy="4" r="3"/><path d="M7 7l2 2"/>
+              </svg>
+              <input
+                className="input text-xs"
+                style={{ paddingLeft: 26, paddingTop: 5, paddingBottom: 5 }}
+                placeholder="Search groups..."
+                value={groupSearch}
+                onChange={(e) => setGroupSearch(e.target.value)}
+              />
+            </div>
+          </div>
 
-      {/* Search */}
-      <div className="px-3 py-2 flex-shrink-0">
-        <input
-          className="input"
-          placeholder="Search channels..."
-          value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
-        />
-      </div>
+          <p className="px-3 py-0.5 text-xs font-semibold uppercase flex-shrink-0"
+            style={{ letterSpacing: '0.08em', color: 'var(--text-secondary)' }}>
+            Groups
+          </p>
 
-      {/* Count */}
-      <div className="px-4 pb-1 flex-shrink-0">
-        <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>
-          {filteredChannels.length.toLocaleString()} channels
-        </p>
-      </div>
+          {/* Group list */}
+          <div className="flex-1 overflow-y-auto px-2 pb-2">
+            <button
+              className={`nav-item w-full text-left ${!activeGroup ? 'active' : ''}`}
+              style={{ paddingLeft: 10, fontSize: 12 }}
+              onClick={() => setActiveGroup(null)}
+            >
+              <svg width="11" height="11" viewBox="0 0 11 11" fill="none" stroke="currentColor" strokeWidth="1.4">
+                <path d="M1 2.5h9M1 5.5h6.5M1 8.5h7.5"/>
+              </svg>
+              <span className="flex-1 text-left">All</span>
+            </button>
+            {groups
+              .filter((g) => !groupSearch || g.toLowerCase().includes(groupSearch.toLowerCase()))
+              .map((g) => (
+                <button
+                  key={g}
+                  className={`nav-item w-full text-left ${activeGroup === g ? 'active' : ''}`}
+                  style={{ paddingLeft: 10, fontSize: 12 }}
+                  onClick={() => setActiveGroup(activeGroup === g ? null : g)}
+                >
+                  {g === 'Favorites' ? (
+                    <svg width="11" height="11" viewBox="0 0 11 11" fill={activeGroup === g ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="1.4">
+                      <path d="M5.5 1l1.2 2.5 2.8.4-2 2 .5 2.8L5.5 7.4l-2.5 1.3.5-2.8-2-2 2.8-.4L5.5 1z"/>
+                    </svg>
+                  ) : (
+                    <svg width="11" height="11" viewBox="0 0 11 11" fill="none" stroke="currentColor" strokeWidth="1.4">
+                      <path d="M1 2.5h9M1 5.5h6.5M1 8.5h7.5"/>
+                    </svg>
+                  )}
+                  <span className="truncate flex-1 text-left">{g}</span>
+                </button>
+              ))}
+          </div>
+        </div>
 
-      {/* Virtualized channel list */}
-      <div ref={containerRef} className="flex-1 overflow-hidden">
-        <List
-          ref={listRef}
-          height={listHeight}
-          itemCount={filteredChannels.length}
-          itemSize={52}
-          width="100%"
-          itemData={itemData}
-        >
-          {ChannelEditorRow}
-        </List>
+        {/* Right: channel list */}
+        <div className="flex flex-col flex-1 overflow-hidden">
+          {/* Search */}
+          <div className="px-3 py-2 flex-shrink-0">
+            <input
+              className="input"
+              placeholder="Search channels..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+            />
+          </div>
+
+          {/* Count */}
+          <div className="px-4 pb-1 flex-shrink-0">
+            <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>
+              {filteredChannels.length.toLocaleString()} channels
+            </p>
+          </div>
+
+          {/* Virtualized channel list */}
+          <div ref={containerRef} className="flex-1 overflow-hidden">
+            <List
+              ref={listRef}
+              height={listHeight}
+              itemCount={filteredChannels.length}
+              itemSize={52}
+              width="100%"
+              itemData={itemData}
+            >
+              {ChannelEditorRow}
+            </List>
+          </div>
+        </div>
       </div>
 
       {/* Bulk move modal */}

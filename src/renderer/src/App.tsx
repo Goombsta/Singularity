@@ -136,7 +136,7 @@ export default function App(): JSX.Element {
                       exit={{ opacity: 0 }}
                       className="h-full"
                     >
-                      <EPGView />
+                      <EPGView onChannelPlay={() => handleViewChange('live')} />
                     </motion.div>
                   ) : view === 'editor' ? (
                     <motion.div

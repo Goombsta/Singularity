@@ -3,6 +3,7 @@ import Hls from 'hls.js'
 import { motion } from 'framer-motion'
 import { usePlayerStore } from '../stores/playerStore'
 import { usePlaylistStore } from '../stores/playlistStore'
+import type { MultiviewLayout } from '../stores/playerStore'
 import type { MultiviewPanel, Channel } from '../types'
 
 interface MiniPlayerProps {
@@ -84,7 +85,7 @@ function MiniPlayer({ panel, allChannels }: MiniPlayerProps): JSX.Element {
 
   return (
     <motion.div
-      className="relative rounded-xl overflow-hidden group"
+      className="relative rounded-xl overflow-hidden group w-full h-full"
       style={{
         background: '#06080f',
         border: panel.isPrimary ? '2px solid var(--accent)' : '1px solid rgba(255,255,255,0.1)',
@@ -236,41 +237,131 @@ function MiniPlayer({ panel, allChannels }: MiniPlayerProps): JSX.Element {
   )
 }
 
+// ── Layout config ──────────────────────────────────────────────────────────
+
+const LAYOUTS: { id: MultiviewLayout; label: string; icon: JSX.Element }[] = [
+  {
+    id: '2h',
+    label: '2 Horizontal',
+    icon: (
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4">
+        <rect x="1" y="3" width="6" height="10" rx="1"/>
+        <rect x="9" y="3" width="6" height="10" rx="1"/>
+      </svg>
+    ),
+  },
+  {
+    id: '2v',
+    label: '2 Vertical',
+    icon: (
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4">
+        <rect x="2" y="1" width="12" height="6" rx="1"/>
+        <rect x="2" y="9" width="12" height="6" rx="1"/>
+      </svg>
+    ),
+  },
+  {
+    id: '3',
+    label: '3 Panels',
+    icon: (
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4">
+        <rect x="1" y="1" width="7" height="14" rx="1"/>
+        <rect x="9" y="1" width="6" height="6" rx="1"/>
+        <rect x="9" y="9" width="6" height="6" rx="1"/>
+      </svg>
+    ),
+  },
+  {
+    id: '4',
+    label: '4 Panels',
+    icon: (
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4">
+        <rect x="1" y="1" width="6" height="6" rx="1"/>
+        <rect x="9" y="1" width="6" height="6" rx="1"/>
+        <rect x="1" y="9" width="6" height="6" rx="1"/>
+        <rect x="9" y="9" width="6" height="6" rx="1"/>
+      </svg>
+    ),
+  },
+]
+
+function getGridStyle(layout: MultiviewLayout): React.CSSProperties {
+  switch (layout) {
+    case '2h': return { gridTemplateColumns: '1fr 1fr', gridTemplateRows: '1fr' }
+    case '2v': return { gridTemplateColumns: '1fr', gridTemplateRows: '1fr 1fr' }
+    case '3':  return { gridTemplateColumns: '1fr 1fr', gridTemplateRows: '2fr 1fr' }
+    case '4':  return { gridTemplateColumns: '1fr 1fr', gridTemplateRows: '1fr 1fr' }
+  }
+}
+
+function getPanelStyle(layout: MultiviewLayout, panelIndex: number): React.CSSProperties {
+  // In 3-panel layout, first panel spans both columns across the top
+  if (layout === '3' && panelIndex === 0) return { gridColumn: '1 / 3' }
+  return {}
+}
+
+function getVisiblePanelCount(layout: MultiviewLayout): number {
+  if (layout === '2h' || layout === '2v') return 2
+  if (layout === '3') return 3
+  return 4
+}
+
 export default function Multiview(): JSX.Element {
-  const { multiviewPanels, toggleMultiview } = usePlayerStore()
+  const { multiviewPanels, multiviewLayout, toggleMultiview, setMultiviewLayout } = usePlayerStore()
   const { filteredChannels } = usePlaylistStore()
+
+  const visibleCount = getVisiblePanelCount(multiviewLayout)
+  const visiblePanels = multiviewPanels.slice(0, visibleCount)
 
   return (
     <div className="flex flex-col h-full p-4 gap-3">
       {/* Header */}
-      <div className="flex items-center justify-between flex-shrink-0">
+      <div className="flex items-center justify-between flex-shrink-0 gap-4">
         <div>
-          <h2
-            className="text-xl font-bold text-metallic"
-            style={{ fontFamily: 'Syne', letterSpacing: '-0.03em' }}
-          >
+          <h2 className="text-xl font-bold text-metallic" style={{ fontFamily: 'Syne', letterSpacing: '-0.03em' }}>
             Multiview
           </h2>
           <p className="text-xs mt-0.5" style={{ color: 'var(--text-secondary)' }}>
             Hover a panel · Pick category → channel · ← → to browse
           </p>
         </div>
+
+        {/* Layout selector */}
+        <div className="flex items-center gap-1 flex-1 justify-center">
+          {LAYOUTS.map((l) => (
+            <motion.button
+              key={l.id}
+              className="btn flex flex-col items-center gap-1 px-3 py-1.5 rounded-lg text-xs"
+              style={{
+                background: multiviewLayout === l.id ? 'rgba(91,127,166,0.2)' : 'var(--bg-surface)',
+                color: multiviewLayout === l.id ? 'var(--accent)' : 'var(--text-secondary)',
+                border: multiviewLayout === l.id ? '1px solid rgba(91,127,166,0.4)' : '1px solid var(--border-hard)',
+              }}
+              whileTap={{ scale: 0.95 }}
+              onClick={() => setMultiviewLayout(l.id)}
+              title={l.label}
+            >
+              {l.icon}
+              <span style={{ fontSize: 10 }}>{l.label}</span>
+            </motion.button>
+          ))}
+        </div>
+
         <motion.button
-          className="btn-neu btn text-xs px-3 py-1.5"
+          className="btn-neu btn text-xs px-3 py-1.5 flex-shrink-0"
           whileTap={{ scale: 0.97 }}
           onClick={toggleMultiview}
         >
-          Exit Multiview
+          Exit
         </motion.button>
       </div>
 
-      {/* 2×2 Grid */}
-      <div
-        className="flex-1 grid gap-3"
-        style={{ gridTemplateColumns: '1fr 1fr', gridTemplateRows: '1fr 1fr' }}
-      >
-        {multiviewPanels.map((panel) => (
-          <MiniPlayer key={panel.id} panel={panel} allChannels={filteredChannels} />
+      {/* Grid — min-h-0 prevents flex children from overflowing the container */}
+      <div className="flex-1 grid gap-3 min-h-0" style={getGridStyle(multiviewLayout)}>
+        {visiblePanels.map((panel, i) => (
+          <div key={panel.id} className="min-h-0 h-full" style={getPanelStyle(multiviewLayout, i)}>
+            <MiniPlayer panel={panel} allChannels={filteredChannels} />
+          </div>
         ))}
       </div>
     </div>

@@ -22,7 +22,11 @@ function generateTimeSlots(start: Date, hours = 12): Date[] {
   return slots
 }
 
-export default function EPGView(): JSX.Element {
+interface EPGViewProps {
+  onChannelPlay?: () => void
+}
+
+export default function EPGView({ onChannelPlay }: EPGViewProps): JSX.Element {
   const { channels: epgMap, loading } = useEpgStore()
   const { filteredChannels } = usePlaylistStore()
   const { play } = usePlayerStore()
@@ -117,8 +121,10 @@ export default function EPGView(): JSX.Element {
               {channelsWithEpg.map((ch) => (
                 <div
                   key={ch.id}
-                  className="flex items-center gap-2 px-3"
+                  className="flex items-center gap-2 px-3 cursor-pointer"
                   style={{ height: ROW_HEIGHT, borderBottom: '1px solid var(--border-hard)' }}
+                  title={`Play ${ch.name}`}
+                  onClick={() => { play(ch); onChannelPlay?.() }}
                 >
                   {ch.logo && (
                     <img src={ch.logo} alt="" className="w-7 h-7 object-contain rounded" />
@@ -208,7 +214,7 @@ export default function EPGView(): JSX.Element {
                           }}
                           whileHover={{ scale: 1.01, zIndex: 5 }}
                           whileTap={{ scale: 0.98 }}
-                          onClick={() => play(ch)}
+                          onClick={() => { play(ch); onChannelPlay?.() }}
                           onMouseEnter={(e) => setTooltip({ program: prog, x: e.clientX, y: e.clientY })}
                           onMouseLeave={() => setTooltip(null)}
                         >

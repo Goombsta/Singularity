@@ -1,6 +1,8 @@
 import { create } from 'zustand'
 import type { Channel, PlayerState, StreamInfo, MultiviewPanel } from '../types'
 
+export type MultiviewLayout = '2h' | '2v' | '3' | '4'
+
 const HISTORY_MAX = 5
 
 interface PlayerStore extends PlayerState {
@@ -23,7 +25,9 @@ interface PlayerStore extends PlayerState {
   setIsLive: (v: boolean) => void
 
   // Multiview
+  multiviewLayout: MultiviewLayout
   toggleMultiview: () => void
+  setMultiviewLayout: (layout: MultiviewLayout) => void
   setMultiviewChannel: (panelId: string, channel: Channel | null) => void
   setPrimaryPanel: (panelId: string) => void
   togglePanelMute: (panelId: string) => void
@@ -52,6 +56,7 @@ export const usePlayerStore = create<PlayerStore>((set, get) => ({
   isLive: true,
   multiviewPanels: defaultPanels,
   isMultiview: false,
+  multiviewLayout: '4' as MultiviewLayout,
   recentChannels: [],
 
   play: (channel) => {
@@ -95,6 +100,7 @@ export const usePlayerStore = create<PlayerStore>((set, get) => ({
   setIsLive: (v) => set({ isLive: v }),
 
   toggleMultiview: () => set((s) => ({ isMultiview: !s.isMultiview })),
+  setMultiviewLayout: (layout) => set({ multiviewLayout: layout }),
 
   setMultiviewChannel: (panelId, channel) =>
     set((s) => ({
