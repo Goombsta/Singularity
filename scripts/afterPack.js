@@ -24,15 +24,15 @@ const PLATFORM_CONFIG = {
   win32: {
     url: `https://github.com/nwjs-ffmpeg-prebuilt/nwjs-ffmpeg-prebuilt/releases/download/${NWJS_VERSION}/${NWJS_VERSION}-win-x64.zip`,
     libName: 'ffmpeg.dll',
-    // Destination is resolved at runtime: path.join(appOutDir, 'ffmpeg.dll')
+    // Flat location alongside the Singularity.exe
     getDestPath: (appOutDir) => path.join(appOutDir, 'ffmpeg.dll'),
   },
   darwin: {
     url: `https://github.com/nwjs-ffmpeg-prebuilt/nwjs-ffmpeg-prebuilt/releases/download/${NWJS_VERSION}/${NWJS_VERSION}-osx-arm64.zip`,
     libName: 'libffmpeg.dylib',
-    // Destination inside the macOS .app bundle
-    getDestPath: (appOutDir) =>
-      path.join(appOutDir, 'Singularity.app', 'Contents', 'Frameworks', 'libffmpeg.dylib'),
+    // In Electron 33+ the dylib is nested inside Electron Framework.framework/Libraries/
+    // Use findFile() at runtime rather than hardcoding the path.
+    getDestPath: (appOutDir) => findFile(appOutDir, 'libffmpeg.dylib'),
   },
 }
 
@@ -123,10 +123,13 @@ module.exports = async function afterPack(context) {
 
   const ffmpegDest = config.getDestPath(context.appOutDir)
 
-  if (!fs.existsSync(ffmpegDest)) {
-    console.warn(`[afterPack] ${config.libName} not found in output — skipping codec replacement`)
+  if (!ffmpegDest || !fs.existsSync(ffmpegDest)) {
+    console.warn(`[afterPack] ${config.libName} not found in output dir — skipping codec replacement`)
+    console.warn(`[afterPack] Searched in: ${context.appOutDir}`)
     return
   }
+
+  console.log(`[afterPack] Found ${config.libName} at: ${ffmpegDest}`)
 
   const tmpDir = path.join(os.tmpdir(), `singularity-ffmpeg-${Date.now()}`)
   fs.mkdirSync(tmpDir, { recursive: true })
