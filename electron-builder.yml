@@ -7,8 +7,6 @@ files:
   - out/**/*
   - '!out/**/*.map'
 # Replace stripped Electron FFmpeg with full-codec NW.js prebuilt (enables AC3/EAC3/DTS audio)
-# Never let electron-builder publish — GitHub Actions handles artifact upload/release
-publish: never
 afterPack: scripts/afterPack.js
 win:
   target:
