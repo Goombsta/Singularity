@@ -277,6 +277,13 @@ export default function Player(): JSX.Element {
         backBufferLength: 30,
         maxBufferLength: 60,
         maxMaxBufferLength: 120,
+        // Generous timeouts for slow IPTV servers (default is 10s / 1 retry)
+        manifestLoadingTimeOut: 20000,
+        manifestLoadingMaxRetry: 3,
+        manifestLoadingRetryDelay: 2000,
+        levelLoadingTimeOut: 20000,
+        levelLoadingMaxRetry: 3,
+        fragLoadingTimeOut: 20000,
       })
       hlsRef.current = hls
       hls.loadSource(effectiveUrl)
@@ -306,7 +313,36 @@ export default function Player(): JSX.Element {
 
       hls.on(Hls.Events.ERROR, (_, data) => {
         if (cancelled || !data.fatal) return
-        setError(`Stream error: ${data.details}`)
+
+        // On manifest timeout, attempt native <video> fallback before giving up.
+        // Some Xtream /live/ URLs serve a direct MPEG-TS stream rather than an
+        // HLS playlist — native playback handles these without needing a manifest.
+        if (data.details === 'manifestLoadTimeOut') {
+          hls.destroy()
+          hlsRef.current = null
+          video.src = effectiveUrl
+          setIsLive(true)
+          const onCanPlayFallback = () => {
+            if (cancelled) return
+            setLoading(false)
+            video.play().catch((e: Error) => {
+              if (cancelled || e.name === 'AbortError') return
+              setError('Stream unavailable — the channel may be offline.')
+            })
+          }
+          video.addEventListener('canplay', onCanPlayFallback, { once: true })
+          // If native also fails within 12s, surface the error
+          const fallbackTimer = setTimeout(() => {
+            if (cancelled) return
+            video.removeEventListener('canplay', onCanPlayFallback)
+            setError('Stream unavailable — the channel may be offline or geo-blocked.')
+            setLoading(false)
+          }, 12000)
+          video.addEventListener('canplay', () => clearTimeout(fallbackTimer), { once: true })
+          return
+        }
+
+        setError('Stream error — the channel may be offline or temporarily unavailable.')
         setLoading(false)
       })
     } else {
