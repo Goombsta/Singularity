@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
 import Hls from 'hls.js'
+import mpegts from 'mpegts.js'
 import { usePlayerStore } from '../stores/playerStore'
 import PlayerControls from './PlayerControls'
 
@@ -145,6 +146,7 @@ function SeriesEpisodePicker({ channel, onEpisode }: {
 export default function Player(): JSX.Element {
   const videoRef = useRef<HTMLVideoElement>(null)
   const hlsRef = useRef<Hls | null>(null)
+  const mpegtsRef = useRef<mpegts.Player | null>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   const [showControls, setShowControls] = useState(true)
   const controlsTimerRef = useRef<ReturnType<typeof setTimeout>>()
@@ -229,6 +231,7 @@ export default function Player(): JSX.Element {
   useEffect(() => {
     if (!effectiveUrl) {
       if (hlsRef.current) { hlsRef.current.destroy(); hlsRef.current = null }
+      if (mpegtsRef.current) { mpegtsRef.current.destroy(); mpegtsRef.current = null }
       const v = videoRef.current
       if (v) { v.pause(); v.removeAttribute('src'); v.load() }
     }
@@ -242,10 +245,14 @@ export default function Player(): JSX.Element {
     // Cancellation token — prevents stale callbacks from updating state after cleanup
     let cancelled = false
 
-    // Destroy any previous HLS instance
+    // Destroy any previous HLS / mpegts instances
     if (hlsRef.current) {
       hlsRef.current.destroy()
       hlsRef.current = null
+    }
+    if (mpegtsRef.current) {
+      mpegtsRef.current.destroy()
+      mpegtsRef.current = null
     }
 
     // Cancel any pending play() immediately before loading new source
@@ -261,15 +268,20 @@ export default function Player(): JSX.Element {
     video.muted = isMuted
 
     // ── URL type detection ─────────────────────────────────────────
-    // HLS.js handles: .m3u8 manifests, or /live/ URLs with no file extension
-    //   (extensionless /live/ URLs let the server decide — usually returns HLS)
-    // Native <video> handles: everything else — .ts, .mp4, .mkv, direct streams.
+    // Three playback paths:
     //
-    // IMPORTANT: .ts URLs are raw MPEG-TS segments, NOT HLS manifests.
-    // Sending them to HLS.js causes a manifest parse error because HLS.js
-    // expects M3U8 text, not binary transport stream data. Route to native instead.
+    // 1. HLS.js  — .m3u8 manifests, or /live/ URLs with no extension
+    //              (extensionless live streams return HLS from the server)
+    //
+    // 2. mpegts.js — URLs ending in .ts (raw MPEG-TS over HTTP)
+    //              Chromium dropped video/mp2t native support; HLS.js expects
+    //              M3U8 text not binary TS. mpegts.js demuxes TS→fMP4 via MSE.
+    //
+    // 3. Native <video> — everything else (.mp4, .mkv, Xtream VOD, etc.)
+
     const isHls = effectiveUrl.includes('.m3u8') ||
       (effectiveUrl.includes('/live/') && !effectiveUrl.endsWith('.ts'))
+    const isMpegTs = effectiveUrl.endsWith('.ts')
 
     if (isHls && Hls.isSupported()) {
       // ── HLS / TS playback via HLS.js ───────────────────────────
@@ -347,6 +359,40 @@ export default function Player(): JSX.Element {
         setError('Stream error — the channel may be offline or temporarily unavailable.')
         setLoading(false)
       })
+    } else if (isMpegTs && mpegts.isSupported()) {
+      // ── mpegts.js — raw MPEG-TS over HTTP ────────────────────────
+      // Handles live IPTV .ts streams that HLS.js can't manifest-load
+      // and Chromium can't decode natively (video/mp2t was removed in Chrome 47).
+      const player = mpegts.createPlayer({
+        type: 'mpegts',
+        url: effectiveUrl,
+        isLive: true,
+      }, {
+        enableWorker: true,
+        liveBufferLatencyChasing: true,
+        liveSync: true,
+      })
+      mpegtsRef.current = player
+      player.attachMediaElement(video)
+      player.load()
+
+      player.on(mpegts.Events.MEDIA_INFO, () => {
+        if (cancelled) return
+        setLoading(false)
+        setIsLive(true)
+        video.play().catch((e: Error) => {
+          if (cancelled || e.name === 'AbortError') return
+          setError(String(e))
+        })
+      })
+
+      player.on(mpegts.Events.ERROR, (_type: unknown, data: unknown) => {
+        if (cancelled) return
+        const info = data as { code?: string; msg?: string }
+        setError(info?.msg || 'Stream error — the channel may be offline.')
+        setLoading(false)
+      })
+
     } else {
       // ── Native video element (MP4, MKV, direct streams) ──────────
       video.src = effectiveUrl
@@ -413,6 +459,10 @@ export default function Player(): JSX.Element {
       if (hlsRef.current) {
         hlsRef.current.destroy()
         hlsRef.current = null
+      }
+      if (mpegtsRef.current) {
+        mpegtsRef.current.destroy()
+        mpegtsRef.current = null
       }
     }
   }, [effectiveUrl])
