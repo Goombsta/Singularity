@@ -1,0 +1,111 @@
+export interface Channel {
+  id: string
+  name: string
+  url: string
+  group: string
+  logo?: string
+  tvgId?: string
+  tvgName?: string
+  number?: number
+  isFavorite?: boolean
+  streamType?: 'live' | 'vod' | 'series'
+}
+
+export interface ChannelGroup {
+  name: string
+  channels: Channel[]
+}
+
+export interface Playlist {
+  id: string
+  name: string
+  type: 'm3u' | 'xtream'
+  url?: string
+  filePath?: string
+  xtream?: XtreamCredentials
+  channels: Channel[]
+  groups: string[]
+  lastUpdated: number
+  refreshInterval?: number // hours
+}
+
+export interface XtreamCredentials {
+  server: string
+  username: string
+  password: string
+}
+
+export interface EpgProgram {
+  id: string
+  channelId: string
+  title: string
+  description?: string
+  start: Date
+  end: Date
+  category?: string
+  icon?: string
+}
+
+export interface EpgChannel {
+  id: string
+  displayName: string
+  icon?: string
+  programs: EpgProgram[]
+}
+
+export interface StreamInfo {
+  codec?: string
+  resolution?: string
+  bitrate?: string
+  fps?: string
+  audioCodec?: string
+}
+
+export interface PlayerState {
+  url: string | null
+  channel: Channel | null
+  isPlaying: boolean
+  isPaused: boolean
+  isMuted: boolean
+  volume: number
+  isFullscreen: boolean
+  isLoading: boolean
+  error: string | null
+  streamInfo: StreamInfo
+  currentTime: number
+  duration: number
+  isLive: boolean
+}
+
+export interface MultiviewPanel {
+  id: string
+  channel: Channel | null
+  isPrimary: boolean
+  isMuted: boolean
+}
+
+export type SidebarView = 'live' | 'vod' | 'series' | 'epg' | 'editor' | 'settings'
+
+export interface Settings {
+  // General
+  startMinimized: boolean
+  minimizeToTray: boolean
+  darkMode: boolean
+  // Playback
+  hardwareAcceleration: boolean
+  bufferSize: number // seconds
+  // External Players
+  externalPlayers: { name: string; path: string }[]
+  defaultExternalPlayer?: string
+  // Interface
+  sidebarCollapsed: boolean
+  animationsEnabled: boolean
+  // EPG
+  epgUrls: string[]
+  epgRefreshInterval: number // hours
+}
+
+export interface ExternalPlayer {
+  name: string
+  path: string
+}

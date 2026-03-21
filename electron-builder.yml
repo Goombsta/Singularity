@@ -1,0 +1,28 @@
+appId: com.singularity.app
+productName: Singularity
+directories:
+  buildResources: build
+  output: dist
+files:
+  - out/**/*
+  - '!out/**/*.map'
+# Replace stripped Electron FFmpeg with full-codec NW.js prebuilt (enables AC3/EAC3/DTS audio)
+afterPack: scripts/afterPack.js
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+    - target: portable
+      arch:
+        - x64
+  icon: build/icon.ico
+  # Skip code signing — no certificate needed for personal distribution
+  signingHashAlgorithms: []
+  sign: null
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: Singularity

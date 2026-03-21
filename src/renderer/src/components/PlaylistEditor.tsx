@@ -1,0 +1,396 @@
+import { useState, useRef, useEffect, useCallback } from 'react'
+import { motion, AnimatePresence } from 'framer-motion'
+import { FixedSizeList as List } from 'react-window'
+import { usePlaylistStore } from '../stores/playlistStore'
+import type { Channel } from '../types'
+
+interface EditState {
+  channelId: string
+  field: 'name' | 'logo' | 'group'
+  value: string
+}
+
+interface RowData {
+  channels: Channel[]
+  selected: Set<string>
+  editing: EditState | null
+  onToggleSelect: (id: string) => void
+  onSetEditing: (e: EditState | null) => void
+  onCommitEdit: () => void
+  onReorder: (id: string, dir: 'up' | 'down' | 'top') => void
+  onDelete: (id: string) => void
+}
+
+function ChannelEditorRow({
+  index,
+  style,
+  data,
+}: {
+  index: number
+  style: React.CSSProperties
+  data: RowData
+}): JSX.Element {
+  const ch = data.channels[index]
+  const isSelected = data.selected.has(ch.id)
+  const isEditing = data.editing?.channelId === ch.id && data.editing.field === 'name'
+
+  return (
+    <div style={style}>
+      <div
+        className="flex items-center gap-2 px-2 py-1 rounded-xl mx-2 group"
+        style={{
+          height: 48,
+          background: isSelected ? 'rgba(91,127,166,0.08)' : 'transparent',
+          border: isSelected ? '1px solid rgba(91,127,166,0.2)' : '1px solid transparent',
+          cursor: 'default',
+        }}
+      >
+        {/* Checkbox */}
+        <div
+          className="w-4 h-4 rounded flex items-center justify-center flex-shrink-0 cursor-pointer"
+          style={{
+            border: '1.5px solid var(--border-hard)',
+            background: isSelected ? 'var(--accent)' : 'transparent',
+          }}
+          onClick={() => data.onToggleSelect(ch.id)}
+        >
+          {isSelected && (
+            <svg width="8" height="8" viewBox="0 0 8 8" stroke="white" strokeWidth="1.5" fill="none">
+              <polyline points="1,4 3,6 7,2"/>
+            </svg>
+          )}
+        </div>
+
+        {/* Number */}
+        <span className="text-xs w-7 text-right flex-shrink-0" style={{ color: 'var(--text-secondary)' }}>
+          {ch.number || index + 1}
+        </span>
+
+        {/* Logo */}
+        <div
+          className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 overflow-hidden"
+          style={{ background: 'var(--bg-surface)', boxShadow: 'var(--shadow-raised-sm)' }}
+        >
+          {ch.logo ? (
+            <img src={ch.logo} alt="" className="w-full h-full object-contain" loading="lazy" />
+          ) : (
+            <span className="text-xs font-bold" style={{ color: 'var(--text-secondary)', fontSize: 9 }}>
+              {ch.name.slice(0, 2).toUpperCase()}
+            </span>
+          )}
+        </div>
+
+        {/* Name / group */}
+        <div className="flex-1 min-w-0">
+          {isEditing ? (
+            <input
+              className="input text-sm py-0.5"
+              value={data.editing!.value}
+              autoFocus
+              onChange={(e) => data.onSetEditing({ ...data.editing!, value: e.target.value })}
+              onBlur={data.onCommitEdit}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') data.onCommitEdit()
+                if (e.key === 'Escape') data.onSetEditing(null)
+              }}
+            />
+          ) : (
+            <p
+              className="text-sm font-medium truncate cursor-text"
+              style={{ color: 'var(--text-primary)' }}
+              onDoubleClick={() => data.onSetEditing({ channelId: ch.id, field: 'name', value: ch.name })}
+            >
+              {ch.name}
+            </p>
+          )}
+          <p className="text-xs truncate" style={{ color: 'var(--text-secondary)', fontSize: 10 }}>{ch.group}</p>
+        </div>
+
+        {/* Actions — visible on hover */}
+        <div className="flex gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0">
+          {/* Move to top */}
+          <button
+            className="btn-neu btn w-6 h-6"
+            style={{ padding: 0 }}
+            onClick={() => data.onReorder(ch.id, 'top')}
+            title="Move to top"
+          >
+            <svg width="9" height="9" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.5">
+              <line x1="1" y1="1" x2="9" y2="1"/>
+              <polyline points="3,9 5,3 7,9"/>
+            </svg>
+          </button>
+
+          {/* Move up */}
+          <button
+            className="btn-neu btn w-6 h-6"
+            style={{ padding: 0 }}
+            onClick={() => data.onReorder(ch.id, 'up')}
+            title="Move up"
+          >
+            <svg width="9" height="9" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.5">
+              <polyline points="2,6 5,3 8,6"/>
+            </svg>
+          </button>
+
+          {/* Move down */}
+          <button
+            className="btn-neu btn w-6 h-6"
+            style={{ padding: 0 }}
+            onClick={() => data.onReorder(ch.id, 'down')}
+            title="Move down"
+          >
+            <svg width="9" height="9" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.5">
+              <polyline points="2,4 5,7 8,4"/>
+            </svg>
+          </button>
+
+          {/* Rename */}
+          <button
+            className="btn-neu btn w-6 h-6"
+            style={{ padding: 0 }}
+            onClick={() => data.onSetEditing({ channelId: ch.id, field: 'name', value: ch.name })}
+            title="Rename"
+          >
+            <svg width="9" height="9" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.5">
+              <path d="M1 9l2-2L8 2l-1-1L2 7 1 9z"/>
+              <line x1="6" y1="2" x2="8" y2="4"/>
+            </svg>
+          </button>
+
+          {/* Delete */}
+          <button
+            className="btn w-6 h-6 rounded-md"
+            style={{ background: 'rgba(224,82,82,0.08)', color: 'var(--danger)', padding: 0 }}
+            onClick={() => data.onDelete(ch.id)}
+            title="Delete"
+          >
+            <svg width="9" height="9" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.5">
+              <line x1="1" y1="1" x2="9" y2="9"/>
+              <line x1="9" y1="1" x2="1" y2="9"/>
+            </svg>
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+export default function PlaylistEditor(): JSX.Element {
+  const {
+    playlists,
+    activePlaylistId,
+    filteredChannels,
+    activeGroup,
+    groups,
+    setActiveGroup,
+    renameChannel,
+    moveChannel,
+    deleteChannel,
+    updateChannelLogo,
+    exportPlaylist,
+    setSearchQuery,
+    searchQuery,
+    reorderChannels,
+  } = usePlaylistStore()
+
+  const playlist = playlists.find((p) => p.id === activePlaylistId)
+  const [editing, setEditing] = useState<EditState | null>(null)
+  const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [bulkGroup, setBulkGroup] = useState('')
+  const [showBulk, setShowBulk] = useState(false)
+
+  // Virtualized list sizing
+  const containerRef = useRef<HTMLDivElement>(null)
+  const listRef = useRef<List>(null)
+  const [listHeight, setListHeight] = useState(400)
+
+  useEffect(() => {
+    if (!containerRef.current) return
+    const ro = new ResizeObserver((entries) => {
+      const h = entries[0]?.contentRect.height
+      if (h && h > 0) setListHeight(h)
+    })
+    ro.observe(containerRef.current)
+    return () => ro.disconnect()
+  }, [])
+
+  const toggleSelect = useCallback((id: string) => {
+    setSelected((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }, [])
+
+  const handleBulkMove = () => {
+    if (!bulkGroup) return
+    selected.forEach((id) => moveChannel(id, bulkGroup))
+    setSelected(new Set())
+    setShowBulk(false)
+  }
+
+  const handleBulkDelete = () => {
+    selected.forEach((id) => deleteChannel(id))
+    setSelected(new Set())
+  }
+
+  const commitEdit = useCallback(() => {
+    if (!editing) return
+    if (editing.field === 'name') renameChannel(editing.channelId, editing.value)
+    if (editing.field === 'logo') updateChannelLogo(editing.channelId, editing.value)
+    if (editing.field === 'group') moveChannel(editing.channelId, editing.value)
+    setEditing(null)
+  }, [editing, renameChannel, updateChannelLogo, moveChannel])
+
+  const itemData: RowData = {
+    channels: filteredChannels,
+    selected,
+    editing,
+    onToggleSelect: toggleSelect,
+    onSetEditing: setEditing,
+    onCommitEdit: commitEdit,
+    onReorder: reorderChannels,
+    onDelete: deleteChannel,
+  }
+
+  return (
+    <div className="flex flex-col h-full">
+      {/* Header */}
+      <div
+        className="flex items-center justify-between px-4 py-3 flex-shrink-0"
+        style={{ borderBottom: '1px solid var(--border-hard)' }}
+      >
+        <div>
+          <h2 className="text-lg font-bold text-metallic" style={{ fontFamily: 'Syne', letterSpacing: '-0.03em' }}>
+            Playlist Editor
+          </h2>
+          {playlist && (
+            <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>
+              {playlist.channels.length.toLocaleString()} channels · {playlist.name}
+            </p>
+          )}
+        </div>
+        <div className="flex gap-2">
+          {selected.size > 0 && (
+            <>
+              <motion.button
+                className="btn-neu btn text-xs px-3 py-1.5"
+                whileTap={{ scale: 0.97 }}
+                onClick={() => setShowBulk(true)}
+              >
+                Move {selected.size}
+              </motion.button>
+              <motion.button
+                className="btn text-xs px-3 py-1.5 rounded-lg"
+                style={{ background: 'rgba(224,82,82,0.1)', color: 'var(--danger)' }}
+                whileTap={{ scale: 0.97 }}
+                onClick={handleBulkDelete}
+              >
+                Delete {selected.size}
+              </motion.button>
+            </>
+          )}
+          <motion.button
+            className="btn-primary btn text-xs px-3 py-1.5"
+            whileTap={{ scale: 0.97 }}
+            onClick={() => activePlaylistId && exportPlaylist(activePlaylistId)}
+          >
+            Export .m3u
+          </motion.button>
+        </div>
+      </div>
+
+      {/* Group tabs */}
+      <div
+        className="flex gap-1 px-3 py-2 overflow-x-auto flex-shrink-0"
+        style={{ borderBottom: '1px solid var(--border-hard)' }}
+      >
+        <button
+          className="badge cursor-pointer whitespace-nowrap"
+          onClick={() => setActiveGroup(null)}
+          style={!activeGroup ? { background: 'rgba(91,127,166,0.2)', color: 'var(--accent)' } : {}}
+        >
+          All
+        </button>
+        {groups.filter((g) => g !== 'Favorites').map((g) => (
+          <button
+            key={g}
+            className="badge cursor-pointer whitespace-nowrap"
+            onClick={() => setActiveGroup(g)}
+            style={activeGroup === g ? { background: 'rgba(91,127,166,0.2)', color: 'var(--accent)' } : {}}
+          >
+            {g}
+          </button>
+        ))}
+      </div>
+
+      {/* Search */}
+      <div className="px-3 py-2 flex-shrink-0">
+        <input
+          className="input"
+          placeholder="Search channels..."
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+        />
+      </div>
+
+      {/* Count */}
+      <div className="px-4 pb-1 flex-shrink-0">
+        <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>
+          {filteredChannels.length.toLocaleString()} channels
+        </p>
+      </div>
+
+      {/* Virtualized channel list */}
+      <div ref={containerRef} className="flex-1 overflow-hidden">
+        <List
+          ref={listRef}
+          height={listHeight}
+          itemCount={filteredChannels.length}
+          itemSize={52}
+          width="100%"
+          itemData={itemData}
+        >
+          {ChannelEditorRow}
+        </List>
+      </div>
+
+      {/* Bulk move modal */}
+      <AnimatePresence>
+        {showBulk && (
+          <div className="overlay" onClick={() => setShowBulk(false)}>
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="neu-raised p-6 w-80"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <h3 className="font-bold mb-3" style={{ fontFamily: 'Syne' }}>Move to Group</h3>
+              <select
+                className="input mb-4"
+                value={bulkGroup}
+                onChange={(e) => setBulkGroup(e.target.value)}
+              >
+                <option value="">Select group...</option>
+                {groups.filter((g) => g !== 'Favorites').map((g) => (
+                  <option key={g} value={g}>{g}</option>
+                ))}
+              </select>
+              <div className="flex gap-2">
+                <motion.button className="btn-primary btn text-sm flex-1" whileTap={{ scale: 0.97 }} onClick={handleBulkMove}>
+                  Move
+                </motion.button>
+                <motion.button className="btn-neu btn text-sm flex-1" whileTap={{ scale: 0.97 }} onClick={() => setShowBulk(false)}>
+                  Cancel
+                </motion.button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+    </div>
+  )
+}

@@ -1,0 +1,22 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(echo \"node_modules/:*)",
+      "Bash(\"C:/All Code/IPTV/.gitignore\")",
+      "Bash(npm install:*)",
+      "Bash(npx tsc:*)",
+      "Bash(node -e \"const Store = require\\(''electron-store''\\); const s = new Store\\(\\); console.log\\(Object.getOwnPropertyNames\\(Object.getPrototypeOf\\(s\\)\\).filter\\(n => !n.startsWith\\(''_''\\)\\)\\)\")",
+      "mcp__Claude_Preview__preview_start",
+      "Bash(where npm:*)",
+      "Bash(node -e \":*)",
+      "Bash(find 'C:/All Code/IPTV/node_modules/electron' -name *.ico)",
+      "Bash(find 'C:/All Code/IPTV/node_modules/electron' -name *.png)",
+      "Bash(set CSC_IDENTITY_AUTO_DISCOVERY=false)",
+      "Bash(npx electron-builder:*)",
+      "Bash(CSC_IDENTITY_AUTO_DISCOVERY=false npx electron-builder --win)",
+      "Bash(ls -lh \"C:/All Code/IPTV/dist/\"*.exe)",
+      "Bash(npm run:*)",
+      "Bash(dir \"C:\\\\All Code\\\\IPTV\\\\dist\" /b)"
+    ]
+  }
+}
