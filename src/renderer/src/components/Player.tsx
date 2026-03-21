@@ -381,6 +381,17 @@ export default function Player(): JSX.Element {
         player.load()
         setIsLive(true)
 
+        // Start playback as soon as enough data is buffered
+        const onMpegTsCanPlay = () => {
+          if (cancelled) return
+          setLoading(false)
+          video.play().catch((e: Error) => {
+            if (cancelled || e.name === 'AbortError') return
+            setError(String(e))
+          })
+        }
+        video.addEventListener('canplay', onMpegTsCanPlay, { once: true })
+
         // mpegts.Events.ERROR signature: (errorType, errorDetail, errorInfo)
         player.on(mpegts.Events.ERROR, (_errorType: unknown, errorDetail: unknown, errorInfo: unknown) => {
           if (cancelled) return
