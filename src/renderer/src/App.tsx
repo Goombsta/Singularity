@@ -36,6 +36,10 @@ export default function App(): JSX.Element {
       const castApi = (window.api as any).cast
       if (castApi) {
         castApi.startDiscovery()
+        // Fetch devices already found before this listener was registered
+        castApi.getDevices().then((devices: any) => {
+          if (devices?.length) usePlayerStore.getState().setCastDevices(devices)
+        })
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         castApi.onDevicesUpdated((devices: any) => {
           usePlayerStore.getState().setCastDevices(devices)

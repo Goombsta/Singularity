@@ -5,6 +5,7 @@ interface Props {
   devices: CastDevice[]
   isCasting: boolean
   castingDevice: CastDevice | null
+  castError: string | null
   onSelect: (deviceId: string) => void
   onStop: () => void
   onClose: () => void
@@ -14,6 +15,7 @@ export default function CastDevicePicker({
   devices,
   isCasting,
   castingDevice,
+  castError,
   onSelect,
   onStop,
   onClose,
@@ -83,6 +85,15 @@ export default function CastDevicePicker({
             })
           )}
         </div>
+
+        {/* Cast error */}
+        {castError && (
+          <div className="border-t px-3 py-2" style={{ borderColor: 'var(--border-soft)' }}>
+            <p style={{ fontSize: 11, color: 'rgba(255,100,100,0.9)', lineHeight: 1.4 }}>
+              {castError}
+            </p>
+          </div>
+        )}
 
         {/* Stop button when casting */}
         {isCasting && (

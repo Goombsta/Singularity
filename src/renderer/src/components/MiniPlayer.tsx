@@ -4,15 +4,31 @@ import mpegts from 'mpegts.js'
 
 interface MiniPlayerProps {
   url: string
+  muted?: boolean
+  volume?: number
   className?: string
   style?: React.CSSProperties
 }
 
-export default function MiniPlayer({ url, className = '', style }: MiniPlayerProps): JSX.Element {
+export default function MiniPlayer({ url, muted = true, volume = 1, className = '', style }: MiniPlayerProps): JSX.Element {
   const videoRef = useRef<HTMLVideoElement>(null)
   const hlsRef = useRef<Hls | null>(null)
   const mpegtsRef = useRef<mpegts.Player | null>(null)
   const [loading, setLoading] = useState(true)
+
+  // Keep refs current so url effect can read latest values without becoming a dep
+  const mutedRef = useRef(muted)
+  const volumeRef = useRef(volume)
+  mutedRef.current = muted
+  volumeRef.current = volume
+
+  // Sync muted / volume when props change (e.g. user clicks mute toggle)
+  useEffect(() => {
+    const video = videoRef.current
+    if (!video) return
+    video.muted = muted
+    video.volume = volume
+  }, [muted, volume])
 
   useEffect(() => {
     const video = videoRef.current
@@ -21,19 +37,17 @@ export default function MiniPlayer({ url, className = '', style }: MiniPlayerPro
     let cancelled = false
 
     // Tear down any existing instances
-    if (hlsRef.current) {
-      hlsRef.current.destroy()
-      hlsRef.current = null
-    }
-    if (mpegtsRef.current) {
-      mpegtsRef.current.destroy()
-      mpegtsRef.current = null
-    }
+    if (hlsRef.current) { hlsRef.current.destroy(); hlsRef.current = null }
+    if (mpegtsRef.current) { mpegtsRef.current.destroy(); mpegtsRef.current = null }
     video.pause()
     video.removeAttribute('src')
     video.load()
 
     setLoading(true)
+
+    // Apply current muted/volume before playback starts
+    video.volume = volumeRef.current
+    video.muted = mutedRef.current
 
     const isHls = url.includes('.m3u8') || (url.includes('/live/') && !url.endsWith('.ts'))
     const isMpegTs = url.endsWith('.ts')
@@ -57,12 +71,11 @@ export default function MiniPlayer({ url, className = '', style }: MiniPlayerPro
       hls.on(Hls.Events.MANIFEST_PARSED, () => {
         if (cancelled) return
         setLoading(false)
-        video.play().catch(() => {/* muted autoplay should always succeed */})
+        video.play().catch(() => {})
       })
 
       hls.on(Hls.Events.ERROR, (_, data) => {
         if (cancelled || !data.fatal) return
-        // Fallback to native on manifest timeout
         if (data.details === 'manifestLoadTimeOut') {
           hls.destroy()
           hlsRef.current = null
@@ -130,7 +143,6 @@ export default function MiniPlayer({ url, className = '', style }: MiniPlayerPro
         ref={videoRef}
         className="w-full h-full"
         style={{ objectFit: 'contain' }}
-        muted
         autoPlay
         playsInline
       />

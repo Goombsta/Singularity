@@ -194,7 +194,11 @@ async function castToChromecast(
 ): Promise<void> {
   return new Promise(async (resolve, reject) => {
     let effectiveUrl = streamUrl
-    let contentType = streamUrl.includes('.m3u8') ? 'application/x-mpegurl' : 'video/mp4'
+
+    // Match the same URL-type logic used in the renderer player
+    const isHls = streamUrl.includes('.m3u8') ||
+      (streamUrl.includes('/live/') && !streamUrl.endsWith('.ts'))
+    let contentType = isHls ? 'application/x-mpegurl' : 'video/mp4'
 
     if (streamUrl.endsWith('.ts')) {
       try {

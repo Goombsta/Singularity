@@ -4,8 +4,9 @@ import { useSettingsStore } from '../stores/settingsStore'
 import { usePlaylistStore } from '../stores/playlistStore'
 import { useEpgStore } from '../stores/epgStore'
 import AddPlaylistModal from './AddPlaylistModal'
+import { version } from '../../../../../package.json'
 
-type Tab = 'general' | 'playlists' | 'playback' | 'external' | 'cache'
+type Tab = 'general' | 'playlists' | 'playback' | 'external' | 'cache' | 'about'
 
 export default function Settings(): JSX.Element {
   const [tab, setTab] = useState<Tab>('general')
@@ -24,6 +25,7 @@ export default function Settings(): JSX.Element {
     { id: 'playback', label: 'Playback' },
     { id: 'external', label: 'External Players' },
     { id: 'cache', label: 'Cache' },
+    { id: 'about', label: 'About' },
   ]
 
   return (
@@ -375,6 +377,56 @@ export default function Settings(): JSX.Element {
               >
                 Reset All Settings
               </motion.button>
+            </div>
+          </div>
+        )}
+
+        {tab === 'about' && (
+          <div className="space-y-6 max-w-md">
+            <h2 className="text-xl font-bold text-metallic" style={{ fontFamily: 'Syne', letterSpacing: '-0.03em' }}>
+              About
+            </h2>
+            <div className="neu-raised p-6 flex flex-col items-center text-center gap-3" style={{ borderRadius: 12 }}>
+              <div
+                className="w-16 h-16 rounded-2xl flex items-center justify-center"
+                style={{ boxShadow: 'var(--shadow-raised)' }}
+              >
+                <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" strokeWidth="1.5">
+                  <circle cx="12" cy="12" r="10"/>
+                  <circle cx="12" cy="12" r="3"/>
+                  <line x1="12" y1="2" x2="12" y2="5"/>
+                  <line x1="12" y1="19" x2="12" y2="22"/>
+                  <line x1="2" y1="12" x2="5" y2="12"/>
+                  <line x1="19" y1="12" x2="22" y2="12"/>
+                </svg>
+              </div>
+              <div>
+                <p className="text-lg font-bold" style={{ fontFamily: 'Syne', color: 'var(--text-primary)', letterSpacing: '-0.02em' }}>
+                  Singularity
+                </p>
+                <p className="text-sm mt-0.5" style={{ color: 'var(--text-secondary)' }}>
+                  IPTV Player
+                </p>
+              </div>
+              <div
+                className="px-4 py-1.5 rounded-full text-sm font-medium"
+                style={{ background: 'var(--bg-base)', color: 'var(--accent)', border: '1px solid var(--border-hard)' }}
+              >
+                v{version}
+              </div>
+            </div>
+
+            <div className="neu-raised p-4 space-y-3" style={{ borderRadius: 12 }}>
+              <div className="flex justify-between items-center">
+                <span className="text-sm" style={{ color: 'var(--text-secondary)' }}>Version</span>
+                <span className="text-sm font-medium font-mono" style={{ color: 'var(--text-primary)' }}>v{version}</span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-sm" style={{ color: 'var(--text-secondary)' }}>Platform</span>
+                <span className="text-sm font-medium font-mono" style={{ color: 'var(--text-primary)' }}>
+                  {window.api?.platform ?? 'web'}
+                </span>
+              </div>
             </div>
           </div>
         )}

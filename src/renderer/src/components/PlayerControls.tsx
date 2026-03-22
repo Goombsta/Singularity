@@ -33,6 +33,7 @@ export default function PlayerControls({ visible, videoRef }: Props): JSX.Elemen
     castDevices,
     isCasting,
     castingDevice,
+    castError,
     startCast,
     stopCast,
   } = usePlayerStore()
@@ -124,6 +125,7 @@ export default function PlayerControls({ visible, videoRef }: Props): JSX.Elemen
                 devices={castDevices}
                 isCasting={isCasting}
                 castingDevice={castingDevice}
+                castError={castError}
                 onSelect={(id) => { startCast(id); setShowCastPicker(false) }}
                 onStop={() => { stopCast(); setShowCastPicker(false) }}
                 onClose={() => setShowCastPicker(false)}
