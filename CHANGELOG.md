@@ -47,11 +47,13 @@
 - Sizes: 16, 32, 48, 64, 128, 256 px
 
 #### 11 — Windows installer: radio-button upgrade dialog
-- Replaced Yes/No `MessageBox` with a full `nsDialogs` custom page
+- Replaced Yes/No `MessageBox` with a standalone `nsDialogs` window shown before the Install Mode page
+- Hooks into `customInstallMode` (electron-builder pre-function for the first installer page)
 - Two radio buttons: **Fresh install** (pre-selected, recommended) and **Upgrade in place**
-- "Next" button renamed to **Install**; Cancel button unchanged
-- First-time installs skip this page entirely (no change to normal install flow)
+- **Install** and **Cancel** buttons — Cancel quits the installer cleanly
 - Fresh install silently uninstalls old version before proceeding; Upgrade leaves user data intact
+- First-time installs skip the dialog entirely
+- All installer-only code guarded with `!ifndef BUILD_UNINSTALLER` to prevent NSIS warning-as-error failures during the uninstaller build pass
 
 ---
 

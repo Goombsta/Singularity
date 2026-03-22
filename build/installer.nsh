@@ -45,6 +45,7 @@
 ;  Shows a standalone upgrade-choice dialog before any installer page appears.
 ; ─────────────────────────────────────────────────────────────────────────────
 !macro customInstallMode
+  !ifndef BUILD_UNINSTALLER
 
   ; Skip entirely when no prior installation found
   StrCmp $SG_ExistingVersion "" sg_im_skip
@@ -128,6 +129,7 @@
   ${EndIf}
 
   sg_im_skip:
+  !endif ; BUILD_UNINSTALLER
 !macroend
 
 
