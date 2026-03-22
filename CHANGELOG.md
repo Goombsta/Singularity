@@ -1,0 +1,121 @@
+# Changelog
+
+**March 2026**
+
+---
+
+## v1.3.0
+
+### Features & Improvements
+
+#### 1 — About page in Settings
+- New **About** tab in Settings showing app name, version badge, and platform info
+- Version injected at build time via `__APP_VERSION__` (Vite `define`) — no fragile relative JSON import
+
+#### 2 — EPG mini player enlarged
+- Mini player dimensions increased from 256×144 to **320×180**
+- Extracted preview into a dedicated `EPGPreviewPanel` sub-component for cleaner code
+
+#### 3 — Sound on EPG and PiP mini players
+- `MiniPlayer` now accepts `muted` and `volume` props (defaults: `true`, `1`)
+- `useEffect` syncs both to the video element on change; refs ensure URL-reload picks up latest values
+- Previously both mini players were always muted with no way to unmute
+
+#### 4 — Draggable Picture-in-Picture
+- PiP window can now be dragged anywhere on screen and stays where dropped
+- Replaced fixed CSS positioning with framer-motion `x`/`y` motion values initialized to the bottom-right corner
+- `whileDrag` cursor/scale feedback; dot-indicator drag handle at top
+- Controls use `onPointerDown stopPropagation` to prevent accidental drag when clicking buttons
+
+#### 5 — Volume slider on all mini players
+- **FloatingPiP:** volume slider (0–1) replaces the old non-functional mute toggle; 0 = muted
+- **EPG Preview:** mute button + volume slider added beneath the preview player
+- Main player already had a volume slider
+
+#### 6 — Cast improvements
+- `App.tsx` now calls `cast.getDevices()` on startup to populate devices discovered before the event listener registered
+- `/live/` Xtream stream URLs now correctly identified as `application/x-mpegurl` (HLS) instead of `video/mp4` when casting to Chromecast
+- Cast errors now shown inline in the Cast picker UI instead of being silently swallowed
+
+---
+
+## v1.2.0
+
+### Features & Improvements
+
+#### 1 — EPG preview player in Program Guide
+- Mini video player panel at the top of the EPG view shows the currently playing channel
+- Displays current program title, time range, description, and channel info alongside the preview
+
+#### 2 — Floating Picture-in-Picture
+- Small overlay player appears in the bottom-right corner when navigating to Settings or Playlist Editor while a channel is playing
+- Shows channel name/logo, mute toggle, and a Go Live button to return to the player
+
+#### 3 — Windows installer upgrade handling
+- When installing over an existing version, the installer now prompts to uninstall the old version first (clean install) or upgrade in place
+- User data (playlists, settings) is preserved in both cases
+
+#### 4 — Multiview playback engine replaced
+- Switched to MPEGTS.js for reliable multiview stream playback
+
+---
+
+### Bug Fixes
+
+#### 1 — Xtream Live TV shows numbers instead of category names
+- Category labels were not being mapped from the Xtream playlist response
+
+#### 2 — Multiview dropdown text invisible (white on white)
+- Dropdown font color was not inheriting a visible foreground color in the current theme
+
+#### 3 — No way to switch channels in Multiview
+- Missing channel-switch button and keyboard shortcut support in multiview mode
+
+#### 4 — Multiview does not exit when navigating to another section
+- Navigating to Settings, Movies, Live TV, etc. did not close the multiview session
+
+#### 5 — Series and Movies sections populate as Live TV
+- Content type not being distinguished — all items treated as Live TV streams
+
+#### 6 — Add Playlist missing from Settings
+- Settings menu lacked an "Add Playlist" option
+
+#### 7 — EPG sources not loading
+- EPG guide fails to fetch or render data from configured EPG sources
+
+#### 8 — M3U playlist not populating all channels per category
+- Channels missing from category listings when parsing M3U files
+
+#### 9 — Search bar magnifying glass overlaps typed text
+- Icon and input field lacked sufficient padding separation
+
+#### 10 — Channel sidebar cut off — not full width on Live TV, Movies, Series
+- Playlist channel panel not expanding to fill available space
+
+#### 11 — Multiview dropdown shows all channels without category grouping
+- Dropdown now shows categories first; channels populate after a category is selected
+- Search filter cleared when opening the multiview picker
+
+#### 12 — Series playback error: NotSupportedError — no supported source found
+- Series stream URLs passed incorrect MIME type or format to the player
+
+#### 13 — Playlist menu freezes the application
+- Opening the playlist management menu caused a UI freeze / unresponsive state
+
+#### 14 — EPG Guide left channel column does not scroll with the timeline
+- Channel names on the left side remained static while the program guide scrolled vertically
+
+#### 15 — Playback error when switching between playlists
+- Second playlist failed to play after switching — stream source not properly re-initialized
+
+#### 16 — Open in External Player button non-functional
+- Button was not invoking the system's default media player
+
+#### 17 — Stalker Portal stream URLs using localhost not playable
+- Stream URLs stored as `http://localhost/ch/...` (STB-relative) were passed directly to the player instead of being resolved via the `create_link` API
+
+#### 18 — mpegts.js live stream stuttering every second
+- `liveBufferLatencyChasing` caused periodic buffer jumps; disabled for smooth playback
+
+#### 19 — mpegts.js frozen frame on start
+- Added `video.play()` call on the `canplay` event to unfreeze initial frame
