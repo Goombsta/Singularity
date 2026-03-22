@@ -46,14 +46,19 @@
 - Regenerated `build/icon.ico` from updated `icon-source.png` preserving alpha transparency
 - Sizes: 16, 32, 48, 64, 128, 256 px
 
-#### 11 — Windows installer: radio-button upgrade dialog
-- Replaced Yes/No `MessageBox` with a standalone `nsDialogs` window shown before the Install Mode page
-- Hooks into `customInstallMode` (electron-builder pre-function for the first installer page)
-- Two radio buttons: **Fresh install** (pre-selected, recommended) and **Upgrade in place**
-- **Install** and **Cancel** buttons — Cancel quits the installer cleanly
-- Fresh install silently uninstalls old version before proceeding; Upgrade leaves user data intact
+#### 11 — Windows installer: Fresh/Upgrade/Cancel upgrade dialog
+- `customInit` NSIS macro detects existing installation before any UI is shown
+- Dialog shows three choices: **Fresh** (removes old version first — recommended), **Upgrade** (keeps playlists and settings), **Cancel** (abort)
+- Button labels renamed from system defaults (Yes/No) to "Fresh" and "Upgrade" using a `WH_CBT` Windows hook via the NSIS `System::` plugin — hook fires on `HCBT_ACTIVATE` just before the dialog is shown, renames buttons via `SendMessageW`, then immediately unhooks
+- Installed version number shown in the prompt
 - First-time installs skip the dialog entirely
 - All installer-only code guarded with `!ifndef BUILD_UNINSTALLER` to prevent NSIS warning-as-error failures during the uninstaller build pass
+
+#### 12 — Stalker Portal: play-time stream URL resolution
+- Stalker channels previously resolved all `create_link` URLs at playlist load time with a single token, causing token expiry failures on large portals
+- Channels now load instantly with the raw portal command stored; `create_link` is called with a fresh handshake token at the moment a channel is played
+- Applies to both in-app playback and "Open in External Player" (VLC etc.)
+- Fixes channels not loading and VLC receiving unusable `http://localhost/ch/...` addresses
 
 ---
 
