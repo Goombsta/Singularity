@@ -45,6 +45,18 @@ function extractStreamUrl(cmd: string): string {
   return cmd.replace(/^(ffmpeg|auto|vlc)\s+/i, '').trim()
 }
 
+function needsCreateLink(url: string): boolean {
+  // Not a real HTTP URL → needs resolving
+  if (!url.startsWith('http')) return true
+  // localhost/127.0.0.1 = STB-relative address, not a real external URL
+  try {
+    const host = new URL(url).hostname
+    return host === 'localhost' || host === '127.0.0.1'
+  } catch {
+    return true
+  }
+}
+
 // ── Auth ───────────────────────────────────────────────────────────────────
 
 export async function stalkerHandshake(creds: StalkerCredentials): Promise<string> {
@@ -119,7 +131,7 @@ export async function stalkerGetLive(creds: StalkerCredentials): Promise<Channel
   for (const ch of chanData.js?.data || []) {
     if (!ch.cmd) continue
     let streamUrl = extractStreamUrl(ch.cmd)
-    if (!streamUrl.startsWith('http')) {
+    if (needsCreateLink(streamUrl)) {
       try {
         streamUrl = await createLink(portal, mac, token, ch.cmd)
       } catch {
@@ -167,7 +179,7 @@ export async function stalkerGetVod(creds: StalkerCredentials): Promise<Channel[
     for (const item of items) {
       if (!item.cmd) continue
       let streamUrl = extractStreamUrl(item.cmd)
-      if (!streamUrl.startsWith('http')) {
+      if (needsCreateLink(streamUrl)) {
         try {
           streamUrl = await createLink(portal, mac, token, item.cmd)
         } catch {
