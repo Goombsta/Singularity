@@ -4,7 +4,8 @@ import { useSettingsStore } from '../stores/settingsStore'
 import { usePlaylistStore } from '../stores/playlistStore'
 import { useEpgStore } from '../stores/epgStore'
 import AddPlaylistModal from './AddPlaylistModal'
-import { version } from '../../../../../package.json'
+declare const __APP_VERSION__: string
+const version = __APP_VERSION__
 
 type Tab = 'general' | 'playlists' | 'playback' | 'external' | 'cache' | 'about'
 
