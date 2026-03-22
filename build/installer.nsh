@@ -93,9 +93,11 @@ FunctionEnd
     ${EndIf}
 
     ; ── Install WH_CBT hook to rename buttons before dialog is shown ──────────
-    ; $R3 used for thread ID — no conflict with $R0 (UninstallString),
-    ; $R1 (DisplayVersion), or $R2 (quote-stripping below).
+    ; GetFunctionAddress creates an explicit NSIS reference to SG_RenameBtns,
+    ; suppressing warning 6010 ("function not referenced") which electron-builder
+    ; treats as an error. $R3 is immediately overwritten with the thread ID.
     StrCpy $SG_hCBTHook 0
+    GetFunctionAddress $R3 SG_RenameBtns
     System::Call 'kernel32::GetCurrentThreadId() i.r3'
     System::Call 'user32::SetWindowsHookExW(i 5, k SG_RenameBtns, i 0, i r3) i.r3'
     StrCpy $SG_hCBTHook $r3
