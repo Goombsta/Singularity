@@ -46,6 +46,13 @@
 - Regenerated `build/icon.ico` from updated `icon-source.png` preserving alpha transparency
 - Sizes: 16, 32, 48, 64, 128, 256 px
 
+#### 11 — Windows installer: radio-button upgrade dialog
+- Replaced Yes/No `MessageBox` with a full `nsDialogs` custom page
+- Two radio buttons: **Fresh install** (pre-selected, recommended) and **Upgrade in place**
+- "Next" button renamed to **Install**; Cancel button unchanged
+- First-time installs skip this page entirely (no change to normal install flow)
+- Fresh install silently uninstalls old version before proceeding; Upgrade leaves user data intact
+
 ---
 
 ## v1.3.0
