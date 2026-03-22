@@ -4,7 +4,7 @@ I am not a coder or anything close to it. IPTV players on Windows Desktop leave 
 
 ## Features
 1. Dark Mode option
-2. M3U and Xtream Codes
+2. M3U, Xtream, Stalker Portal (MAC-based) Playlists
 3. EPG - Load custom EPG's
 4. Allow multiple playlists
 5. Multiview 4 screens
@@ -12,13 +12,11 @@ I am not a coder or anything close to it. IPTV players on Windows Desktop leave 
 7. Playlist Editor
 8. Allows External Players
 9. Channel and Category Search functions
+10. Cast to Device
 
 ## Future Enhancements
-- Playlist editor - Clean up the layout a little bit.
-- Change the menu 'Playlist' to read 'Playlist Editor'
-- Multiview - Add layout options for 2 screens, 3 screens, 4 screens.
 - Android and iOS builds
-- MacOS Builds.
+
 
 ## Known Bugs
 - Live TV, Series, and Movies playlist may start half cropped vertically. (Fix is to Click Guide menu and then go back to Live TV, Series, or Movies for full screen scroll.)
