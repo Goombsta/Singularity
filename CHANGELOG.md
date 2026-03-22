@@ -4,6 +4,50 @@
 
 ---
 
+## v1.3.1
+
+### Features & Improvements
+
+#### 1 — EPG Guide renamed
+- Sidebar and bottom nav label changed from **Guide** to **EPG Guide**
+- EPG Guide header title updated to match
+
+#### 2 — EPG Guide always-on preview panel
+- Mini player panel now always visible at the top of the EPG Guide — shows a black placeholder with instructions when no channel is playing
+- Previously the panel was hidden until a channel was actively selected in Live TV
+
+#### 3 — EPG mini player enlarged further
+- Preview player increased from 320×180 to **480×270** (16:9)
+
+#### 4 — EPG Guide: clicking channels no longer navigates to Live TV
+- Clicking a channel or program tile plays/previews in the panel above — stays in EPG Guide
+
+#### 5 — EPG Guide: scrollable category column replaces dropdown
+- New fixed-width (160px) category column on the left with scrollable category list
+- Active category highlighted; click **All Categories** to reset the filter
+- Dropdown in the header removed
+
+#### 6 — PiP: resizable from top-right corner
+- Drag the top-right resize handle to scale the PiP window to any size
+- Minimum size: 240×135; bottom edge stays fixed while resizing vertically
+- Resize is independent from drag — does not trigger window movement
+
+#### 7 — PiP: X close button at top-left
+- Clicking X hides the PiP window without stopping the stream
+- PiP automatically reappears next time you navigate away while a channel is playing
+
+#### 8 — PiP: volume slider no longer triggers drag
+- `onPointerDown` stop-propagation added directly on the range `<input>` element
+
+#### 9 — About page: Singularity app icon
+- About tab now displays the real Singularity icon instead of an SVG placeholder
+
+#### 10 — Desktop icon: transparent background
+- Regenerated `build/icon.ico` from updated `icon-source.png` preserving alpha transparency
+- Sizes: 16, 32, 48, 64, 128, 256 px
+
+---
+
 ## v1.3.0
 
 ### Features & Improvements

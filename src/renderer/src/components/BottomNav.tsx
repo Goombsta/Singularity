@@ -34,7 +34,7 @@ const NAV_ITEMS: { id: SidebarView; label: string; icon: JSX.Element }[] = [
   },
   {
     id: 'epg',
-    label: 'Guide',
+    label: 'EPG Guide',
     icon: (
       <svg width="18" height="18" viewBox="0 0 15 15" fill="none" stroke="currentColor" strokeWidth="1.5">
         <rect x="1" y="1.5" width="13" height="12" rx="1.5"/>

@@ -37,7 +37,7 @@ const NAV_ITEMS: { id: SidebarView; label: string; shortcut?: string; icon: JSX.
   },
   {
     id: 'epg',
-    label: 'Guide',
+    label: 'EPG Guide',
     shortcut: 'E',
     icon: (
       <svg width="15" height="15" viewBox="0 0 15 15" fill="none" stroke="currentColor" strokeWidth="1.5">

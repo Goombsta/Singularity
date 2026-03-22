@@ -12,6 +12,7 @@ const HOUR_WIDTH = 280 // px per hour
 const ROW_HEIGHT = 60 // px per channel row
 const TIME_HEADER_HEIGHT = 36
 const CHANNEL_COL_WIDTH = 180
+const CATEGORY_COL_WIDTH = 160
 
 function generateTimeSlots(start: Date, hours = 12): Date[] {
   const slots: Date[] = []
@@ -26,10 +27,10 @@ function generateTimeSlots(start: Date, hours = 12): Date[] {
 // ── EPG Preview Panel ────────────────────────────────────────────────────────
 
 interface EPGPreviewPanelProps {
-  playingChannel: { name: string; logo?: string; group?: string; tvgId?: string }
-  playingUrl: string
-  currentProg: EpgProgram | undefined
-  durationMin: number | null
+  playingChannel?: { name: string; logo?: string; group?: string; tvgId?: string } | null
+  playingUrl?: string | null
+  currentProg?: EpgProgram | undefined
+  durationMin?: number | null
 }
 
 function EPGPreviewPanel({ playingChannel, playingUrl, currentProg, durationMin }: EPGPreviewPanelProps): JSX.Element {
@@ -47,109 +48,145 @@ function EPGPreviewPanel({ playingChannel, playingUrl, currentProg, durationMin 
     >
       {/* Mini video + volume control */}
       <div className="flex-shrink-0 flex flex-col gap-2">
-        <MiniPlayer
-          url={playingUrl}
-          muted={muted}
-          volume={volume}
-          className="rounded-xl"
-          style={{ width: 320, height: 180 }}
-        />
-
-        {/* Volume control */}
-        <div className="flex items-center gap-2 px-1">
-          <button
-            onClick={handleVolumeBtnClick}
-            style={{ color: 'var(--text-secondary)', flexShrink: 0 }}
-            title={muted ? 'Unmute' : 'Mute'}
-          >
-            {muted ? (
-              <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
-                <path d="M1 5h3l4-3v10l-4-3H1V5z"/>
-                <line x1="10" y1="4" x2="13" y2="10"/>
-                <line x1="13" y1="4" x2="10" y2="10"/>
-              </svg>
-            ) : (
-              <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
-                <path d="M1 5h3l4-3v10l-4-3H1V5z"/>
-                <path d="M10 5a3 3 0 010 4"/>
-              </svg>
-            )}
-          </button>
-          <input
-            type="range"
-            min={0}
-            max={1}
-            step={0.05}
-            value={volume}
-            onChange={(e) => setVolume(parseFloat(e.target.value))}
-            style={{
-              flex: 1,
-              WebkitAppearance: 'none',
-              appearance: 'none',
-              height: 3,
-              borderRadius: 2,
-              background: `linear-gradient(to right, var(--accent) ${volume * 100}%, var(--border-hard) ${volume * 100}%)`,
-              outline: 'none',
-              cursor: 'pointer',
-            }}
+        {playingUrl ? (
+          <MiniPlayer
+            url={playingUrl}
+            muted={muted}
+            volume={volume}
+            className="rounded-xl"
+            style={{ width: 480, height: 270 }}
           />
-        </div>
+        ) : (
+          /* Blank black placeholder */
+          <div
+            className="rounded-xl flex items-center justify-center"
+            style={{ width: 480, height: 270, background: '#000', border: '1px solid var(--border-hard)' }}
+          >
+            <div className="flex flex-col items-center gap-2 opacity-30">
+              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="1.5">
+                <rect x="3" y="4" width="18" height="18" rx="2"/>
+                <line x1="16" y1="2" x2="16" y2="6"/>
+                <line x1="8" y1="2" x2="8" y2="6"/>
+                <line x1="3" y1="10" x2="21" y2="10"/>
+              </svg>
+              <span className="text-xs text-white">Select a channel to preview</span>
+            </div>
+          </div>
+        )}
+
+        {/* Volume control — only shown when playing */}
+        {playingUrl && (
+          <div className="flex items-center gap-2 px-1">
+            <button
+              onClick={handleVolumeBtnClick}
+              style={{ color: 'var(--text-secondary)', flexShrink: 0 }}
+              title={muted ? 'Unmute' : 'Mute'}
+            >
+              {muted ? (
+                <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
+                  <path d="M1 5h3l4-3v10l-4-3H1V5z"/>
+                  <line x1="10" y1="4" x2="13" y2="10"/>
+                  <line x1="13" y1="4" x2="10" y2="10"/>
+                </svg>
+              ) : (
+                <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
+                  <path d="M1 5h3l4-3v10l-4-3H1V5z"/>
+                  <path d="M10 5a3 3 0 010 4"/>
+                </svg>
+              )}
+            </button>
+            <input
+              type="range"
+              min={0}
+              max={1}
+              step={0.05}
+              value={volume}
+              onChange={(e) => setVolume(parseFloat(e.target.value))}
+              style={{
+                flex: 1,
+                WebkitAppearance: 'none',
+                appearance: 'none',
+                height: 3,
+                borderRadius: 2,
+                background: `linear-gradient(to right, var(--accent) ${volume * 100}%, var(--border-hard) ${volume * 100}%)`,
+                outline: 'none',
+                cursor: 'pointer',
+              }}
+            />
+          </div>
+        )}
       </div>
 
       {/* Program info */}
       <div className="flex flex-col justify-center flex-1 min-w-0 gap-1.5 relative">
-        {/* Group badge */}
-        {playingChannel.group && (
-          <span
-            className="absolute top-0 right-0 text-xs px-2 py-0.5 rounded-full font-medium"
-            style={{ background: 'var(--bg-base)', color: 'var(--text-secondary)', border: '1px solid var(--border-hard)' }}
-          >
-            {playingChannel.group}
-          </span>
-        )}
+        {playingChannel ? (
+          <>
+            {/* Group badge */}
+            {playingChannel.group && (
+              <span
+                className="absolute top-0 right-0 text-xs px-2 py-0.5 rounded-full font-medium"
+                style={{ background: 'var(--bg-base)', color: 'var(--text-secondary)', border: '1px solid var(--border-hard)' }}
+              >
+                {playingChannel.group}
+              </span>
+            )}
 
-        {/* Channel name + logo */}
-        <div className="flex items-center gap-2">
-          {playingChannel.logo && (
-            <img
-              src={playingChannel.logo}
-              alt=""
-              className="w-6 h-6 object-contain rounded flex-shrink-0"
-              onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }}
-            />
-          )}
-          <span className="text-sm font-bold truncate" style={{ color: 'var(--text-primary)' }}>
-            {playingChannel.name}
-          </span>
-        </div>
+            {/* Channel name + logo */}
+            <div className="flex items-center gap-2">
+              {playingChannel.logo && (
+                <img
+                  src={playingChannel.logo}
+                  alt=""
+                  className="w-6 h-6 object-contain rounded flex-shrink-0"
+                  onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }}
+                />
+              )}
+              <span className="text-sm font-bold truncate" style={{ color: 'var(--text-primary)' }}>
+                {playingChannel.name}
+              </span>
+            </div>
 
-        {/* Program title */}
-        <p
-          className="text-lg font-bold truncate"
-          style={{ fontFamily: 'Syne', letterSpacing: '-0.02em', color: 'var(--text-primary)' }}
-        >
-          {currentProg?.title ?? 'No program available'}
-        </p>
+            {/* Program title */}
+            <p
+              className="text-lg font-bold truncate"
+              style={{ fontFamily: 'Syne', letterSpacing: '-0.02em', color: 'var(--text-primary)' }}
+            >
+              {currentProg?.title ?? 'No program available'}
+            </p>
 
-        {/* Time range */}
-        {currentProg && (
-          <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>
-            {formatTime(currentProg.start)} — {formatTime(currentProg.end)}
-            {durationMin && ` · ${durationMin} min`}
-          </p>
-        )}
+            {/* Time range */}
+            {currentProg && (
+              <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>
+                {formatTime(currentProg.start)} — {formatTime(currentProg.end)}
+                {durationMin && ` · ${durationMin} min`}
+              </p>
+            )}
 
-        {/* Description */}
-        {currentProg?.description && (
-          <p className="text-xs line-clamp-2" style={{ color: 'var(--text-secondary)' }}>
-            {currentProg.description}
-          </p>
-        )}
+            {/* Description */}
+            {currentProg?.description && (
+              <p className="text-xs line-clamp-2" style={{ color: 'var(--text-secondary)' }}>
+                {currentProg.description}
+              </p>
+            )}
 
-        {!currentProg && (
-          <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>
-            No program info available
-          </p>
+            {!currentProg && (
+              <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>
+                No program info available
+              </p>
+            )}
+          </>
+        ) : (
+          <div className="flex flex-col gap-1.5">
+            <p
+              className="text-lg font-bold"
+              style={{ fontFamily: 'Syne', letterSpacing: '-0.02em', color: 'var(--text-secondary)' }}
+            >
+              No channel playing
+            </p>
+            <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>
+              Click a channel or program to start previewing
+            </p>
+          </div>
         )}
       </div>
     </div>
@@ -158,11 +195,7 @@ function EPGPreviewPanel({ playingChannel, playingUrl, currentProg, durationMin 
 
 // ─────────────────────────────────────────────────────────────────────────────
 
-interface EPGViewProps {
-  onChannelPlay?: () => void
-}
-
-export default function EPGView({ onChannelPlay }: EPGViewProps): JSX.Element {
+export default function EPGView(): JSX.Element {
   const { channels: epgMap, loading } = useEpgStore()
   const { filteredChannels } = usePlaylistStore()
   const { play, channel: playingChannel, url: playingUrl } = usePlayerStore()
@@ -204,52 +237,32 @@ export default function EPGView({ onChannelPlay }: EPGViewProps): JSX.Element {
     .filter((ch) => !selectedGroup || ch.group === selectedGroup)
     .slice(0, 150)
 
+  // Compute current program info for the preview panel
+  const epgCh = playingChannel?.tvgId ? epgMap.get(playingChannel.tvgId) : undefined
+  const currentProg = epgCh ? getCurrentProgram(epgCh.programs) : undefined
+  const durationMin = currentProg
+    ? Math.round((currentProg.end.getTime() - currentProg.start.getTime()) / 60000)
+    : null
+
   return (
     <div className="flex flex-col h-full">
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-3 flex-shrink-0 gap-4" style={{ borderBottom: '1px solid var(--border-hard)' }}>
         <h2 className="text-lg font-bold text-metallic flex-shrink-0" style={{ fontFamily: 'Syne', letterSpacing: '-0.03em' }}>
-          Program Guide
+          EPG Guide
         </h2>
-        <div className="flex items-center gap-3 flex-1 justify-end">
-          {/* Category filter */}
-          {epgGroups.length > 0 && (
-            <select
-              className="input text-xs"
-              style={{ maxWidth: 220, cursor: 'pointer' }}
-              value={selectedGroup}
-              onChange={(e) => setSelectedGroup(e.target.value)}
-            >
-              <option value="">All Categories</option>
-              {epgGroups.map((g) => (
-                <option key={g} value={g}>{g}</option>
-              ))}
-            </select>
-          )}
-          <p className="text-xs flex-shrink-0" style={{ color: 'var(--text-secondary)' }}>
-            {loading ? 'Loading EPG...' : `${channelsWithEpg.length} channels`}
-          </p>
-        </div>
+        <p className="text-xs flex-shrink-0" style={{ color: 'var(--text-secondary)' }}>
+          {loading ? 'Loading EPG...' : `${channelsWithEpg.length} channels`}
+        </p>
       </div>
 
-      {/* Preview panel — shown when a channel is currently playing */}
-      {playingChannel && playingUrl && (() => {
-        const epgCh = playingChannel.tvgId ? epgMap.get(playingChannel.tvgId) : undefined
-        const currentProg = epgCh ? getCurrentProgram(epgCh.programs) : undefined
-        const durationMin = currentProg
-          ? Math.round((currentProg.end.getTime() - currentProg.start.getTime()) / 60000)
-          : null
-
-        return (
-          <EPGPreviewPanel
-            playingChannel={playingChannel}
-            playingUrl={playingUrl}
-            currentProg={currentProg}
-            durationMin={durationMin}
-          />
-        )
-      })()}
-
+      {/* Preview panel — always shown */}
+      <EPGPreviewPanel
+        playingChannel={playingChannel}
+        playingUrl={playingUrl}
+        currentProg={currentProg}
+        durationMin={durationMin}
+      />
 
       {epgMap.size === 0 ? (
         <div className="flex flex-col items-center justify-center flex-1 gap-4">
@@ -266,6 +279,51 @@ export default function EPGView({ onChannelPlay }: EPGViewProps): JSX.Element {
         </div>
       ) : (
         <div className="flex flex-1 overflow-hidden">
+          {/* Category column */}
+          {epgGroups.length > 0 && (
+            <div
+              className="flex-shrink-0 flex flex-col overflow-hidden"
+              style={{ width: CATEGORY_COL_WIDTH, borderRight: '1px solid var(--border-hard)', background: 'var(--bg-surface)' }}
+            >
+              <div
+                className="flex-shrink-0 flex items-center px-3"
+                style={{ height: TIME_HEADER_HEIGHT, borderBottom: '1px solid var(--border-hard)' }}
+              >
+                <span className="text-xs font-semibold uppercase" style={{ letterSpacing: '0.08em', color: 'var(--text-secondary)' }}>
+                  Category
+                </span>
+              </div>
+              <div className="flex-1 overflow-y-auto py-1">
+                {/* All */}
+                <button
+                  className="w-full text-left px-3 py-2 text-xs font-medium truncate"
+                  style={{
+                    color: !selectedGroup ? 'var(--accent)' : 'var(--text-primary)',
+                    background: !selectedGroup ? 'var(--bg-active, rgba(91,127,166,0.12))' : 'transparent',
+                    borderRadius: 6,
+                  }}
+                  onClick={() => setSelectedGroup('')}
+                >
+                  All Categories
+                </button>
+                {epgGroups.map((g) => (
+                  <button
+                    key={g}
+                    className="w-full text-left px-3 py-2 text-xs truncate"
+                    style={{
+                      color: selectedGroup === g ? 'var(--accent)' : 'var(--text-primary)',
+                      background: selectedGroup === g ? 'var(--bg-active, rgba(91,127,166,0.12))' : 'transparent',
+                      borderRadius: 6,
+                    }}
+                    onClick={() => setSelectedGroup(g)}
+                  >
+                    {g}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
           {/* Channel column (fixed) */}
           <div
             className="flex-shrink-0 overflow-hidden"
@@ -278,8 +336,8 @@ export default function EPGView({ onChannelPlay }: EPGViewProps): JSX.Element {
                   key={ch.id}
                   className="flex items-center gap-2 px-3 cursor-pointer"
                   style={{ height: ROW_HEIGHT, borderBottom: '1px solid var(--border-hard)' }}
-                  title={`Play ${ch.name}`}
-                  onClick={() => { play(ch); onChannelPlay?.() }}
+                  title={`Preview ${ch.name}`}
+                  onClick={() => play(ch)}
                 >
                   {ch.logo && (
                     <img src={ch.logo} alt="" className="w-7 h-7 object-contain rounded" />
@@ -369,7 +427,7 @@ export default function EPGView({ onChannelPlay }: EPGViewProps): JSX.Element {
                           }}
                           whileHover={{ scale: 1.01, zIndex: 5 }}
                           whileTap={{ scale: 0.98 }}
-                          onClick={() => { play(ch); onChannelPlay?.() }}
+                          onClick={() => play(ch)}
                           onMouseEnter={(e) => setTooltip({ program: prog, x: e.clientX, y: e.clientY })}
                           onMouseLeave={() => setTooltip(null)}
                         >

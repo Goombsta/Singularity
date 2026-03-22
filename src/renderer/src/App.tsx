@@ -25,6 +25,7 @@ export default function App(): JSX.Element {
   const { load: loadEpg } = useEpgStore()
   const { isMultiview, toggleMultiview, setFullscreen, isFullscreen, channel } = usePlayerStore()
   const isAndroid = window.api?.platform === 'android'
+  const [pipVisible, setPipVisible] = useState(true)
 
   // Bootstrap
   useEffect(() => {
@@ -82,6 +83,9 @@ export default function App(): JSX.Element {
     },
     [setFilterType]
   )
+
+  // Re-show PiP whenever a new channel starts playing
+  useEffect(() => { setPipVisible(true) }, [channel?.id])
 
   // ESC: exit fullscreen, exit multiview
   useEffect(() => {
@@ -153,7 +157,7 @@ export default function App(): JSX.Element {
                   exit={{ opacity: 0 }}
                   className="h-full"
                 >
-                  <EPGView onChannelPlay={() => handleViewChange('live')} />
+                  <EPGView />
                 </motion.div>
               ) : view === 'editor' ? (
                 <motion.div
@@ -243,7 +247,7 @@ export default function App(): JSX.Element {
                       exit={{ opacity: 0 }}
                       className="h-full"
                     >
-                      <EPGView onChannelPlay={() => handleViewChange('live')} />
+                      <EPGView />
                     </motion.div>
                   ) : view === 'editor' ? (
                     <motion.div
@@ -275,8 +279,11 @@ export default function App(): JSX.Element {
 
       {/* Floating PiP — shown when a channel is playing but player view is not visible */}
       <AnimatePresence>
-        {channel && !showPlayerSplit && !isMultiview && view !== 'epg' && (
-          <FloatingPiP onGoLive={() => handleViewChange('live')} />
+        {channel && pipVisible && !showPlayerSplit && !isMultiview && view !== 'epg' && (
+          <FloatingPiP
+            onGoLive={() => handleViewChange('live')}
+            onClose={() => setPipVisible(false)}
+          />
         )}
       </AnimatePresence>
 

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
-import appIcon from '../assets/app-icon.png'
+import appIcon from '../assets/singularity-icon.png'
 
 export default function TitleBar(): JSX.Element {
   const [isMax, setIsMax] = useState(false)

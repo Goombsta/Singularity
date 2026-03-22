@@ -4,6 +4,7 @@ import { useSettingsStore } from '../stores/settingsStore'
 import { usePlaylistStore } from '../stores/playlistStore'
 import { useEpgStore } from '../stores/epgStore'
 import AddPlaylistModal from './AddPlaylistModal'
+import singularityIcon from '../assets/singularity-icon.png'
 declare const __APP_VERSION__: string
 const version = __APP_VERSION__
 
@@ -388,18 +389,8 @@ export default function Settings(): JSX.Element {
               About
             </h2>
             <div className="neu-raised p-6 flex flex-col items-center text-center gap-3" style={{ borderRadius: 12 }}>
-              <div
-                className="w-16 h-16 rounded-2xl flex items-center justify-center"
-                style={{ boxShadow: 'var(--shadow-raised)' }}
-              >
-                <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" strokeWidth="1.5">
-                  <circle cx="12" cy="12" r="10"/>
-                  <circle cx="12" cy="12" r="3"/>
-                  <line x1="12" y1="2" x2="12" y2="5"/>
-                  <line x1="12" y1="19" x2="12" y2="22"/>
-                  <line x1="2" y1="12" x2="5" y2="12"/>
-                  <line x1="19" y1="12" x2="22" y2="12"/>
-                </svg>
+              <div style={{ width: 64, height: 64 }}>
+                <img src={singularityIcon} alt="Singularity" className="w-full h-full object-contain" />
               </div>
               <div>
                 <p className="text-lg font-bold" style={{ fontFamily: 'Syne', color: 'var(--text-primary)', letterSpacing: '-0.02em' }}>
