@@ -43,11 +43,15 @@ export default function AddPlaylistModal({ onClose }: Props): JSX.Element {
         await addXtream(name || 'Xtream', server, username, password)
       } else {
         if (!stalkerPortal || !stalkerMac) throw new Error('Portal URL and MAC address are required')
-        await addStalker(name || 'Stalker', stalkerPortal, stalkerMac)
+        const macClean = stalkerMac.trim()
+        if (!/^([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}$/.test(macClean)) {
+          throw new Error('Invalid MAC address — must be 6 hex pairs separated by colons (e.g. 00:1A:79:XX:XX:XX)')
+        }
+        await addStalker(name || 'Stalker', stalkerPortal, macClean)
       }
       onClose()
     } catch (e) {
-      setError(String(e).replace('Error: ', ''))
+      setError(e instanceof Error ? e.message : String(e))
     } finally {
       setLoading(false)
     }

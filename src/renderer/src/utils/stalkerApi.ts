@@ -30,8 +30,12 @@ async function portalFetch(url: string, mac: string, token?: string): Promise<un
   // Some portals wrap the JSON in an HTML response — strip any leading HTML
   const jsonStart = text.indexOf('{')
   const jsonEnd = text.lastIndexOf('}')
-  if (jsonStart === -1) throw new Error('Invalid portal response (no JSON found)')
-  return JSON.parse(text.slice(jsonStart, jsonEnd + 1))
+  if (jsonStart === -1) throw new Error('Portal did not return a valid response — check your Portal URL and MAC address')
+  try {
+    return JSON.parse(text.slice(jsonStart, jsonEnd + 1))
+  } catch {
+    throw new Error('Portal returned an unrecognised response — the Portal URL may be incorrect or the MAC address may not be authorised')
+  }
 }
 
 function extractStreamUrl(cmd: string): string {
