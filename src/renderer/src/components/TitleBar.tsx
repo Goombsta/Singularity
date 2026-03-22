@@ -1,10 +1,12 @@
 import React, { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
+import appIcon from '../assets/app-icon.png'
 
 export default function TitleBar(): JSX.Element {
   const [isMax, setIsMax] = useState(false)
-  // On macOS, native traffic lights (close/min/max) are shown by the OS — hide our custom buttons
   const isMac = window.api.platform === 'darwin'
+  // Android has native system bars — hide the entire custom titlebar
+  if (window.api.platform === 'android' || window.api.platform === 'ios') return null
 
   useEffect(() => {
     window.api.window.isMaximized().then(setIsMax)
@@ -27,19 +29,8 @@ export default function TitleBar(): JSX.Element {
     >
       {/* Logo + Title */}
       <div className="flex items-center gap-2">
-        {/* Black hole logo mark */}
-        <div className="w-5 h-5 flex items-center justify-center flex-shrink-0">
-          <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
-            {/* Accretion disk */}
-            <ellipse cx="9" cy="9" rx="8.5" ry="3.2" fill="rgba(180,210,255,0.18)"/>
-            <ellipse cx="9" cy="9" rx="6.5" ry="2.2" fill="rgba(200,225,255,0.28)"/>
-            <ellipse cx="9" cy="9" rx="4.5" ry="1.4" fill="rgba(220,235,255,0.40)"/>
-            {/* Event horizon */}
-            <circle cx="9" cy="9" r="3.2" fill="#06080f"/>
-            {/* Inner bright ring */}
-            <ellipse cx="9" cy="9" rx="3.6" ry="1.1" stroke="rgba(210,230,255,0.7)" strokeWidth="0.6" fill="none"/>
-          </svg>
-        </div>
+        {/* App icon */}
+        <img src={appIcon} alt="" className="w-5 h-5 flex-shrink-0" style={{ borderRadius: '50%' }} />
         <span
           className="text-sm font-bold"
           style={{ fontFamily: 'Syne', letterSpacing: '-0.02em', color: 'var(--accent)' }}

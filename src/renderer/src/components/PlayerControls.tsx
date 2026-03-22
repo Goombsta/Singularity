@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { usePlayerStore } from '../stores/playerStore'
 import { useSettingsStore } from '../stores/settingsStore'
 import { formatDuration } from '../utils/formatters'
+import CastDevicePicker from './CastDevicePicker'
 import type { RefObject } from 'react'
 
 interface Props {
@@ -17,6 +18,7 @@ export default function PlayerControls({ visible, videoRef }: Props): JSX.Elemen
     isMuted,
     volume,
     isFullscreen,
+    isMultiview,
     streamInfo,
     currentTime,
     duration,
@@ -28,6 +30,11 @@ export default function PlayerControls({ visible, videoRef }: Props): JSX.Elemen
     setVolume,
     setFullscreen,
     setCurrentTime,
+    castDevices,
+    isCasting,
+    castingDevice,
+    startCast,
+    stopCast,
   } = usePlayerStore()
 
   const { settings } = useSettingsStore()
@@ -46,6 +53,7 @@ export default function PlayerControls({ visible, videoRef }: Props): JSX.Elemen
   }
 
   const [showStreamInfo, setShowStreamInfo] = useStreamInfoToggle()
+  const [showCastPicker, setShowCastPicker] = useState(false)
 
   return (
     <AnimatePresence>
@@ -109,6 +117,20 @@ export default function PlayerControls({ visible, videoRef }: Props): JSX.Elemen
           )}
 
           {/* Controls row */}
+          {/* Cast device picker */}
+          <AnimatePresence>
+            {showCastPicker && (
+              <CastDevicePicker
+                devices={castDevices}
+                isCasting={isCasting}
+                castingDevice={castingDevice}
+                onSelect={(id) => { startCast(id); setShowCastPicker(false) }}
+                onStop={() => { stopCast(); setShowCastPicker(false) }}
+                onClose={() => setShowCastPicker(false)}
+              />
+            )}
+          </AnimatePresence>
+
           <div className="flex items-center gap-2 px-2">
             {/* Play/Pause */}
             <ControlBtn onClick={isPlaying ? pause : resume} title={isPlaying ? 'Pause (Space)' : 'Play (Space)'}>
@@ -170,6 +192,33 @@ export default function PlayerControls({ visible, videoRef }: Props): JSX.Elemen
               </svg>
             </ControlBtn>
 
+            {/* Cast button */}
+            {!isMultiview && (
+              <ControlBtn
+                onClick={() => setShowCastPicker(!showCastPicker)}
+                title="Cast to device"
+                style={isCasting ? { background: 'rgba(91,127,166,0.4)' } : undefined}
+              >
+                {isCasting ? (
+                  // Active: filled cast icon
+                  <svg width="13" height="13" viewBox="0 0 13 13" fill="white">
+                    <rect x="4" y="6" width="8" height="6" rx="1"/>
+                    <path d="M1 11a4 4 0 014-4" stroke="white" strokeWidth="1.5" fill="none"/>
+                    <path d="M1 8.5a1.5 1.5 0 011.5-1.5" stroke="white" strokeWidth="1.5" fill="none" strokeLinecap="round"/>
+                    <circle cx="1" cy="11" r="1" fill="white"/>
+                  </svg>
+                ) : (
+                  // Idle: outline cast icon
+                  <svg width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="white" strokeWidth="1.5">
+                    <rect x="4" y="6" width="8" height="6" rx="1"/>
+                    <path d="M1 11a4 4 0 014-4"/>
+                    <path d="M1 8.5a1.5 1.5 0 011.5-1.5" strokeLinecap="round"/>
+                    <circle cx="1" cy="11" r="1" fill="white" stroke="none"/>
+                  </svg>
+                )}
+              </ControlBtn>
+            )}
+
             {/* External player */}
             {settings.externalPlayers.length > 0 && (
               <ControlBtn onClick={handleExternalPlayer} title="Open in external player">
@@ -204,15 +253,17 @@ function ControlBtn({
   onClick,
   children,
   title,
+  style,
 }: {
   onClick: () => void
   children: React.ReactNode
   title?: string
+  style?: React.CSSProperties
 }): JSX.Element {
   return (
     <motion.button
       className="btn w-8 h-8 rounded-lg"
-      style={{ background: 'rgba(255,255,255,0.15)', backdropFilter: 'blur(8px)' }}
+      style={{ background: 'rgba(255,255,255,0.15)', backdropFilter: 'blur(8px)', ...style }}
       whileHover={{ background: 'rgba(255,255,255,0.25)' }}
       whileTap={{ scale: 0.9 }}
       onClick={onClick}

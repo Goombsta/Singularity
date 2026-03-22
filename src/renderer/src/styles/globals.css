@@ -348,3 +348,16 @@ body,
   --epg-card-border: rgba(255, 255, 255, 0.08);
   --epg-card-current-border: rgba(107, 159, 212, 0.4);
 }
+
+/* Android touch targets — ensure minimum 44px tap area for all interactive elements */
+.android-mode button,
+.android-mode [role="button"] {
+  min-height: 44px;
+  min-width: 44px;
+}
+
+/* Exempt compact UI controls from the touch-target minimum */
+.android-mode .toggle-btn {
+  min-height: unset;
+  min-width: unset;
+}

@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { usePlaylistStore } from '../stores/playlistStore'
 
-type Mode = 'url' | 'file' | 'xtream'
+type Mode = 'url' | 'file' | 'xtream' | 'stalker'
 
 interface Props {
   onClose: () => void
@@ -23,7 +23,11 @@ export default function AddPlaylistModal({ onClose }: Props): JSX.Element {
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
 
-  const { addM3UFromUrl, addM3UFromFile, addXtream } = usePlaylistStore()
+  // Stalker form
+  const [stalkerPortal, setStalkerPortal] = useState('')
+  const [stalkerMac, setStalkerMac] = useState('')
+
+  const { addM3UFromUrl, addM3UFromFile, addXtream, addStalker } = usePlaylistStore()
 
   const handleSubmit = async () => {
     setError(null)
@@ -34,9 +38,12 @@ export default function AddPlaylistModal({ onClose }: Props): JSX.Element {
         await addM3UFromUrl(name || 'My Playlist', url, refresh)
       } else if (mode === 'file') {
         await addM3UFromFile()
-      } else {
+      } else if (mode === 'xtream') {
         if (!server || !username || !password) throw new Error('All fields required')
         await addXtream(name || 'Xtream', server, username, password)
+      } else {
+        if (!stalkerPortal || !stalkerMac) throw new Error('Portal URL and MAC address are required')
+        await addStalker(name || 'Stalker', stalkerPortal, stalkerMac)
       }
       onClose()
     } catch (e) {
@@ -63,12 +70,12 @@ export default function AddPlaylistModal({ onClose }: Props): JSX.Element {
           Add Playlist
         </h2>
         <p className="text-xs mb-5" style={{ color: 'var(--text-secondary)' }}>
-          Add an M3U playlist or Xtream Codes account
+          Add an M3U playlist, Xtream Codes, or Stalker Portal account
         </p>
 
         {/* Mode tabs */}
         <div className="flex gap-1 mb-5 p-1 rounded-xl" style={{ background: 'var(--bg-surface)', boxShadow: 'var(--shadow-inset)' }}>
-          {(['url', 'file', 'xtream'] as Mode[]).map((m) => (
+          {(['url', 'file', 'xtream', 'stalker'] as Mode[]).map((m) => (
             <motion.button
               key={m}
               className="flex-1 text-xs py-1.5 rounded-lg font-medium"
@@ -80,7 +87,7 @@ export default function AddPlaylistModal({ onClose }: Props): JSX.Element {
               onClick={() => setMode(m)}
               whileTap={{ scale: 0.97 }}
             >
-              {m === 'url' ? 'M3U URL' : m === 'file' ? 'Local File' : 'Xtream Codes'}
+              {m === 'url' ? 'M3U URL' : m === 'file' ? 'Local File' : m === 'xtream' ? 'Xtream' : 'Stalker / MAC'}
             </motion.button>
           ))}
         </div>
@@ -165,6 +172,48 @@ export default function AddPlaylistModal({ onClose }: Props): JSX.Element {
                 <div>
                   <label className="text-xs font-medium block mb-1" style={{ color: 'var(--text-secondary)' }}>Password *</label>
                   <input className="input" type="password" placeholder="password" value={password} onChange={(e) => setPassword(e.target.value)} />
+                </div>
+              </>
+            )}
+
+            {mode === 'stalker' && (
+              <>
+                <div>
+                  <label className="text-xs font-medium block mb-1" style={{ color: 'var(--text-secondary)' }}>Account Name</label>
+                  <input
+                    className="input"
+                    placeholder="My Stalker Portal"
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                  />
+                </div>
+                <div>
+                  <label className="text-xs font-medium block mb-1" style={{ color: 'var(--text-secondary)' }}>Portal URL *</label>
+                  <input
+                    className="input"
+                    placeholder="http://provider.com/c"
+                    value={stalkerPortal}
+                    onChange={(e) => setStalkerPortal(e.target.value)}
+                  />
+                </div>
+                <div>
+                  <label className="text-xs font-medium block mb-1" style={{ color: 'var(--text-secondary)' }}>MAC Address *</label>
+                  <input
+                    className="input"
+                    placeholder="00:1A:79:XX:XX:XX"
+                    value={stalkerMac}
+                    onChange={(e) => setStalkerMac(e.target.value)}
+                    onBlur={(e) => {
+                      // Auto-format: strip non-hex, uppercase, insert colons
+                      const raw = e.target.value.replace(/[^0-9a-fA-F]/g, '').toUpperCase()
+                      if (raw.length === 12) {
+                        setStalkerMac(raw.match(/.{2}/g)!.join(':'))
+                      }
+                    }}
+                  />
+                  <p className="text-xs mt-1" style={{ color: 'var(--text-secondary)' }}>
+                    The MAC address associated with your subscription
+                  </p>
                 </div>
               </>
             )}

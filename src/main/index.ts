@@ -2,6 +2,7 @@ import { app, shell, BrowserWindow } from 'electron'
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import { registerIpcHandlers } from './ipc'
+import * as castService from './castService'
 
 let mainWindow: BrowserWindow | null = null
 
@@ -50,11 +51,14 @@ app.whenReady().then(() => {
 
   registerIpcHandlers()
   createWindow()
+  if (mainWindow) castService.initCastService(mainWindow.webContents)
 
   app.on('activate', function () {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
   })
 })
+
+app.on('before-quit', () => castService.destroyCastService())
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {

@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import type { Channel, PlayerState, StreamInfo, MultiviewPanel } from '../types'
+import type { CastDevice } from '../../../shared/castTypes'
 
 export type MultiviewLayout = '2h' | '2v' | '3' | '4'
 
@@ -31,6 +32,15 @@ interface PlayerStore extends PlayerState {
   setMultiviewChannel: (panelId: string, channel: Channel | null) => void
   setPrimaryPanel: (panelId: string) => void
   togglePanelMute: (panelId: string) => void
+
+  // Casting
+  castDevices: CastDevice[]
+  isCasting: boolean
+  castingDevice: CastDevice | null
+  castError: string | null
+  setCastDevices: (devices: CastDevice[]) => void
+  startCast: (deviceId: string) => Promise<void>
+  stopCast: () => Promise<void>
 }
 
 const defaultPanels: MultiviewPanel[] = [
@@ -58,6 +68,10 @@ export const usePlayerStore = create<PlayerStore>((set, get) => ({
   isMultiview: false,
   multiviewLayout: '4' as MultiviewLayout,
   recentChannels: [],
+  castDevices: [],
+  isCasting: false,
+  castingDevice: null,
+  castError: null,
 
   play: (channel) => {
     // Add to recent history (deduplicated, most recent first, max 5)
@@ -124,4 +138,27 @@ export const usePlayerStore = create<PlayerStore>((set, get) => ({
         p.id === panelId ? { ...p, isMuted: !p.isMuted } : p
       ),
     })),
+
+  setCastDevices: (devices) => set({ castDevices: devices }),
+
+  startCast: async (deviceId) => {
+    const { url, channel } = get()
+    const streamUrl = url || channel?.url
+    if (!streamUrl) return
+    const channelName = channel?.name || 'IPTV Channel'
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const result = await (window.api as any).cast.start(deviceId, streamUrl, channelName)
+    if (result.success) {
+      const device = get().castDevices.find((d) => d.id === deviceId) ?? null
+      set({ isCasting: true, castingDevice: device, castError: null })
+    } else {
+      set({ castError: result.error || 'Cast failed' })
+    }
+  },
+
+  stopCast: async () => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await (window.api as any).cast.stop()
+    set({ isCasting: false, castingDevice: null, castError: null })
+  },
 }))

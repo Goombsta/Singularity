@@ -39,7 +39,22 @@ const api = {
   },
   // Network
   net: {
-    fetch: (url: string) => ipcRenderer.invoke('net:fetch', url),
+    fetch: (url: string, options?: { headers?: Record<string, string> }) =>
+      ipcRenderer.invoke('net:fetch', url, options),
+  },
+  // Casting (Chromecast + DLNA)
+  cast: {
+    getDevices: () => ipcRenderer.invoke('cast:getDevices'),
+    startDiscovery: () => ipcRenderer.invoke('cast:startDiscovery'),
+    start: (deviceId: string, streamUrl: string, channelName: string) =>
+      ipcRenderer.invoke('cast:start', deviceId, streamUrl, channelName),
+    stop: () => ipcRenderer.invoke('cast:stop'),
+    onDevicesUpdated: (cb: (devices: unknown[]) => void) => {
+      ipcRenderer.on('cast:devicesUpdated', (_event, devices) => cb(devices))
+    },
+    offDevicesUpdated: () => {
+      ipcRenderer.removeAllListeners('cast:devicesUpdated')
+    },
   },
 }
 

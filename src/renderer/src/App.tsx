@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import TitleBar from './components/TitleBar'
 import Sidebar from './components/Sidebar'
+import BottomNav from './components/BottomNav'
 import ChannelList from './components/ChannelList'
 import Player from './components/Player'
 import Multiview from './components/Multiview'
@@ -22,14 +23,34 @@ export default function App(): JSX.Element {
   const { load: loadSettings, settings } = useSettingsStore()
   const { load: loadEpg } = useEpgStore()
   const { isMultiview, toggleMultiview, setFullscreen, isFullscreen } = usePlayerStore()
+  const isAndroid = window.api?.platform === 'android'
 
   // Bootstrap
   useEffect(() => {
     async function init() {
       await loadSettings()
       await loadPlaylists()
+      // Start casting device discovery (Electron only)
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const castApi = (window.api as any).cast
+      if (castApi) {
+        castApi.startDiscovery()
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        castApi.onDevicesUpdated((devices: any) => {
+          usePlayerStore.getState().setCastDevices(devices)
+        })
+      }
     }
     init()
+    // Add android-mode class for touch-target CSS overrides
+    if (window.api.platform === 'android' || window.api.platform === 'ios') {
+      document.body.classList.add('android-mode')
+    }
+    return () => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const castApi = (window.api as any).cast
+      if (castApi) castApi.offDevicesUpdated()
+    }
   }, [])
 
   // Apply dark mode class to <html>
@@ -80,8 +101,89 @@ export default function App(): JSX.Element {
 
   const showPlayerSplit = view === 'live' || view === 'vod' || view === 'series'
 
+  // ── Android portrait layout ──────────────────────────────────────────────
+  if (isAndroid) {
+    return (
+      <div
+        className="flex flex-col h-full"
+        style={{
+          background: 'var(--bg-base)',
+          paddingTop: 'env(safe-area-inset-top)',
+        }}
+      >
+        {/* Main content — full width, no sidebar */}
+        <div className="flex flex-col flex-1 overflow-hidden">
+          {isMultiview ? (
+            <Multiview />
+          ) : (
+            <AnimatePresence mode="wait">
+              {showPlayerSplit ? (
+                <motion.div
+                  key="android-player-split"
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  className="flex flex-col flex-1 overflow-hidden h-full"
+                >
+                  {/* Player at top (~40% height) */}
+                  <div style={{ flex: '0 0 40%', overflow: 'hidden' }}>
+                    <Player />
+                  </div>
+                  {/* Channel list fills remaining space */}
+                  <div
+                    style={{
+                      flex: 1,
+                      overflow: 'hidden',
+                      borderTop: '1px solid var(--border-hard)',
+                    }}
+                  >
+                    <ChannelList />
+                  </div>
+                </motion.div>
+              ) : view === 'epg' ? (
+                <motion.div
+                  key="epg"
+                  initial={{ opacity: 0, x: 10 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  exit={{ opacity: 0 }}
+                  className="h-full"
+                >
+                  <EPGView onChannelPlay={() => handleViewChange('live')} />
+                </motion.div>
+              ) : view === 'editor' ? (
+                <motion.div
+                  key="editor"
+                  initial={{ opacity: 0, x: 10 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  exit={{ opacity: 0 }}
+                  className="h-full"
+                >
+                  <PlaylistEditor />
+                </motion.div>
+              ) : view === 'settings' ? (
+                <motion.div
+                  key="settings"
+                  initial={{ opacity: 0, x: 10 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  exit={{ opacity: 0 }}
+                  className="h-full"
+                >
+                  <Settings />
+                </motion.div>
+              ) : null}
+            </AnimatePresence>
+          )}
+        </div>
+
+        <StatusBar />
+        <BottomNav view={view} onViewChange={handleViewChange} />
+      </div>
+    )
+  }
+
+  // ── Desktop layout (Electron / web) ──────────────────────────────────────
   return (
-    <div className="flex flex-col h-full" style={{ background: 'var(--bg-base)' }}>
+    <div className="flex flex-col h-full" style={{ background: 'var(--bg-base)', paddingTop: 'env(safe-area-inset-top)', paddingBottom: 'env(safe-area-inset-bottom)' }}>
       <TitleBar />
 
       <div className="flex flex-1 overflow-hidden">

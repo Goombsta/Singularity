@@ -4,6 +4,7 @@ import { readFile, writeFile } from 'fs/promises'
 import { spawn } from 'child_process'
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 import Store from 'electron-store'
+import * as castService from './castService'
 
 // electron-store v10 extends Conf — cast to any to avoid TS type issues with older @types
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -158,11 +159,16 @@ export function registerIpcHandlers(): void {
   // Returns { data, status } on success or { error, status: 0 } on network failure.
   // Never rejects — always resolves — so the renderer gets a clean error message instead of
   // the "Error invoking remote method 'net:fetch': ..." Electron IPC prefix.
-  ipcMain.handle('net:fetch', async (_, url: string) => {
+  ipcMain.handle('net:fetch', async (_, url: string, options?: { headers?: Record<string, string> }) => {
     const { net } = await import('electron')
     return new Promise((resolve) => {
       try {
         const request = net.request({ url, method: 'GET' })
+        if (options?.headers) {
+          for (const [key, value] of Object.entries(options.headers)) {
+            request.setHeader(key, value)
+          }
+        }
         const chunks: Buffer[] = []
         request.on('response', (response) => {
           response.on('data', (chunk) => chunks.push(Buffer.from(chunk)))
@@ -185,4 +191,21 @@ export function registerIpcHandlers(): void {
       }
     })
   })
+
+  // ── Casting ────────────────────────────────────────────────────────────────
+
+  ipcMain.handle('cast:getDevices', () => castService.getDiscoveredDevices())
+
+  ipcMain.handle('cast:startDiscovery', (_event) => {
+    const win = BrowserWindow.getFocusedWindow()
+    if (win) castService.restartDiscovery(win.webContents)
+  })
+
+  ipcMain.handle(
+    'cast:start',
+    async (_event, deviceId: string, streamUrl: string, channelName: string) =>
+      castService.startCast(deviceId, streamUrl, channelName),
+  )
+
+  ipcMain.handle('cast:stop', async () => castService.stopCast())
 }

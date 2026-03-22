@@ -54,7 +54,7 @@ export default function Settings(): JSX.Element {
       {/* Content */}
       <div className="flex-1 overflow-y-auto p-6">
         {tab === 'general' && (
-          <div className="space-y-6 max-w-md">
+          <div className="space-y-3 max-w-md">
             <h2 className="text-xl font-bold text-metallic" style={{ fontFamily: 'Syne', letterSpacing: '-0.03em' }}>
               General
             </h2>
@@ -123,33 +123,37 @@ export default function Settings(): JSX.Element {
                   {playlists.map((pl) => (
                     <div
                       key={pl.id}
-                      className="neu-raised p-3 flex items-center gap-3"
+                      className="neu-raised p-3 flex flex-col gap-2"
                       style={{ borderRadius: 10 }}
                     >
-                      <div className="flex-1 min-w-0">
+                      {/* Info row */}
+                      <div className="min-w-0">
                         <p className="text-sm font-medium truncate" style={{ color: 'var(--text-primary)' }}>
                           {pl.name}
                         </p>
-                        <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>
+                        <p className="text-xs mt-0.5" style={{ color: 'var(--text-secondary)' }}>
                           {pl.channels.length.toLocaleString()} channels · {pl.type.toUpperCase()}
                           {pl.lastUpdated ? ` · Updated ${new Date(pl.lastUpdated).toLocaleDateString()}` : ''}
                         </p>
                       </div>
-                      <motion.button
-                        className="btn-neu btn text-xs px-2 py-1"
-                        whileTap={{ scale: 0.97 }}
-                        onClick={() => refreshPlaylist(pl.id)}
-                      >
-                        Refresh
-                      </motion.button>
-                      <motion.button
-                        className="btn text-xs px-2 py-1 rounded-lg"
-                        style={{ background: 'rgba(224,82,82,0.1)', color: 'var(--danger)' }}
-                        whileTap={{ scale: 0.97 }}
-                        onClick={() => removePlaylist(pl.id)}
-                      >
-                        Remove
-                      </motion.button>
+                      {/* Button row */}
+                      <div className="flex gap-2">
+                        <motion.button
+                          className="btn-neu btn text-xs px-3 py-1.5 flex-1"
+                          whileTap={{ scale: 0.97 }}
+                          onClick={() => refreshPlaylist(pl.id)}
+                        >
+                          Refresh
+                        </motion.button>
+                        <motion.button
+                          className="btn text-xs px-3 py-1.5 rounded-lg flex-1"
+                          style={{ background: 'rgba(224,82,82,0.1)', color: 'var(--danger)' }}
+                          whileTap={{ scale: 0.97 }}
+                          onClick={() => removePlaylist(pl.id)}
+                        >
+                          Remove
+                        </motion.button>
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -213,7 +217,7 @@ export default function Settings(): JSX.Element {
         )}
 
         {tab === 'playback' && (
-          <div className="space-y-6 max-w-md">
+          <div className="space-y-3 max-w-md">
             <h2 className="text-xl font-bold text-metallic" style={{ fontFamily: 'Syne', letterSpacing: '-0.03em' }}>
               Playback
             </h2>
@@ -389,16 +393,16 @@ function Toggle({
   onChange: (v: boolean) => void
 }): JSX.Element {
   return (
-    <div className="flex items-center justify-between gap-4">
-      <p className="text-sm" style={{ color: 'var(--text-primary)' }}>{label}</p>
+    <div className="flex items-center justify-between gap-3">
+      <p className="text-xs" style={{ color: 'var(--text-primary)' }}>{label}</p>
       <motion.button
-        className="relative flex-shrink-0"
+        className="relative flex-shrink-0 toggle-btn"
         style={{
-          width: 44,
-          height: 24,
-          borderRadius: 12,
+          width: 36,
+          height: 18,
+          borderRadius: 9,
           background: value ? 'var(--accent)' : 'var(--bg-surface)',
-          boxShadow: value ? '0 2px 8px rgba(91,127,166,0.3)' : 'var(--shadow-inset)',
+          boxShadow: value ? '0 1px 6px rgba(91,127,166,0.35)' : 'var(--shadow-inset)',
           border: 'none',
           cursor: 'pointer',
           transition: 'background 200ms',
@@ -407,10 +411,16 @@ function Toggle({
         whileTap={{ scale: 0.95 }}
       >
         <motion.div
-          className="absolute top-1 w-4 h-4 rounded-full"
-          style={{ background: value ? 'white' : '#a8aaad' }}
-          animate={{ x: value ? 22 : 4 }}
-          transition={{ type: 'spring', stiffness: 400, damping: 30 }}
+          className="absolute rounded-full"
+          style={{
+            top: 2,
+            width: 14,
+            height: 14,
+            background: value ? 'white' : '#a8aaad',
+            boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
+          }}
+          animate={{ x: value ? 20 : 2 }}
+          transition={{ type: 'spring', stiffness: 500, damping: 35 }}
         />
       </motion.button>
     </div>

@@ -17,6 +17,7 @@ win:
       arch:
         - x64
   icon: build/icon.ico
+  artifactName: Singularity.exe
   # Skip code signing — no certificate needed for personal distribution
   signingHashAlgorithms: []
   sign: null
@@ -26,6 +27,7 @@ nsis:
   createDesktopShortcut: true
   createStartMenuShortcut: true
   shortcutName: Singularity
+  artifactName: Singularity Setup.exe
 mac:
   target:
     - target: dmg

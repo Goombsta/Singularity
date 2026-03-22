@@ -19,10 +19,11 @@ export interface ChannelGroup {
 export interface Playlist {
   id: string
   name: string
-  type: 'm3u' | 'xtream'
+  type: 'm3u' | 'xtream' | 'stalker'
   url?: string
   filePath?: string
   xtream?: XtreamCredentials
+  stalker?: StalkerCredentials
   channels: Channel[]
   groups: string[]
   lastUpdated: number
@@ -33,6 +34,11 @@ export interface XtreamCredentials {
   server: string
   username: string
   password: string
+}
+
+export interface StalkerCredentials {
+  portal: string // e.g. "http://provider.com/c"
+  mac: string    // e.g. "00:1A:79:XX:XX:XX"
 }
 
 export interface EpgProgram {

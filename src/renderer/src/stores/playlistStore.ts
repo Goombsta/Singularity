@@ -6,7 +6,8 @@ import {
   xtreamGetSeries,
   xtreamAuthenticate,
 } from '../utils/xtreamApi'
-import type { Channel, Playlist } from '../types'
+import { stalkerAuthenticate, stalkerGetLive, stalkerGetVod } from '../utils/stalkerApi'
+import type { Channel, Playlist, StalkerCredentials } from '../types'
 
 type FilterType = 'all' | 'live' | 'vod' | 'series'
 
@@ -27,6 +28,7 @@ interface PlaylistStore {
   addM3UFromUrl: (name: string, url: string, refreshInterval?: number) => Promise<void>
   addM3UFromFile: () => Promise<void>
   addXtream: (name: string, server: string, username: string, password: string) => Promise<void>
+  addStalker: (name: string, portal: string, mac: string) => Promise<void>
   removePlaylist: (id: string) => Promise<void>
   refreshPlaylist: (id: string) => Promise<void>
   setActivePlaylist: (id: string | null) => void
@@ -192,6 +194,33 @@ export const usePlaylistStore = create<PlaylistStore>((set, get) => ({
     await get()._save()
   },
 
+  addStalker: async (name, portal, mac) => {
+    const creds: StalkerCredentials = { portal: portal.replace(/\/+$/, ''), mac }
+    await stalkerAuthenticate(creds)
+
+    const [live, vod] = await Promise.all([
+      stalkerGetLive(creds),
+      stalkerGetVod(creds),
+    ])
+
+    const channels = [...live, ...vod]
+    const id = `stalker-${Date.now()}`
+    const playlist: Playlist = {
+      id,
+      name,
+      type: 'stalker',
+      stalker: creds,
+      channels,
+      groups: [...new Set(channels.map((c) => c.group))],
+      lastUpdated: Date.now(),
+      refreshInterval: 24,
+    }
+    const playlists = [...get().playlists, playlist]
+    set({ playlists, activePlaylistId: id })
+    get()._recompute()
+    await get()._save()
+  },
+
   removePlaylist: async (id) => {
     const playlists = get().playlists.filter((p) => p.id !== id)
     const activeId = playlists[0]?.id || null
@@ -221,6 +250,12 @@ export const usePlaylistStore = create<PlaylistStore>((set, get) => ({
         xtreamGetSeries(playlist.xtream),
       ])
       channels = [...live, ...vod, ...series]
+    } else if (playlist.type === 'stalker' && playlist.stalker) {
+      const [live, vod] = await Promise.all([
+        stalkerGetLive(playlist.stalker),
+        stalkerGetVod(playlist.stalker),
+      ])
+      channels = [...live, ...vod]
     }
 
     const updated = {
