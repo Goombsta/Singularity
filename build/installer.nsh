@@ -52,10 +52,9 @@
     ; ── Ask user: Fresh Install / Upgrade / Cancel ────────────────────────────
     MessageBox MB_YESNOCANCEL|MB_ICONQUESTION|MB_DEFBUTTON1 \
       "Singularity $R1 is already installed.$\n$\n\
-Choose how to proceed:$\n$\n\
-  Fresh Install $\t Removes old version first$\t (recommended)$\n\
-  Upgrade       $\t Keeps your playlists and settings$\n\
-  Cancel        $\t Exits the installer" \
+Choose Yes  $\t Fresh Install $\t Removes old version first (recommended)$\n\
+Choose No   $\t Upgrade       $\t Keeps your playlists and settings$\n\
+Cancel      $\t               $\t Exits the installer" \
       IDNO sg_upgrade IDCANCEL sg_cancel
 
     ; ── YES / Fresh Install: uninstall old version silently first ─────────────
