@@ -351,10 +351,9 @@ export default function Player(): JSX.Element {
       hls.on(Hls.Events.ERROR, (_, data) => {
         if (cancelled || !data.fatal) return
 
-        // On manifest timeout, attempt native <video> fallback before giving up.
-        // Some Xtream /live/ URLs serve a direct MPEG-TS stream rather than an
-        // HLS playlist — native playback handles these without needing a manifest.
-        if (data.details === 'manifestLoadTimeOut') {
+        // ── Native <video> fallback helper ───────────────────────────
+        // Used for both manifest-timeout and codec-unsupported cases.
+        const fallbackToNative = (timeoutMsg: string) => {
           hls.destroy()
           hlsRef.current = null
           video.src = effectiveUrl
@@ -368,14 +367,29 @@ export default function Player(): JSX.Element {
             })
           }
           video.addEventListener('canplay', onCanPlayFallback, { once: true })
-          // If native also fails within 12s, surface the error
           const fallbackTimer = setTimeout(() => {
             if (cancelled) return
             video.removeEventListener('canplay', onCanPlayFallback)
-            setError('Stream unavailable — the channel may be offline or geo-blocked.')
+            setError(timeoutMsg)
             setLoading(false)
           }, 12000)
           video.addEventListener('canplay', () => clearTimeout(fallbackTimer), { once: true })
+        }
+
+        // On manifest timeout, attempt native <video> fallback before giving up.
+        // Some Xtream /live/ URLs serve a direct MPEG-TS stream rather than an
+        // HLS playlist — native playback handles these without needing a manifest.
+        if (data.details === 'manifestLoadTimeOut') {
+          fallbackToNative('Stream unavailable — the channel may be offline or geo-blocked.')
+          return
+        }
+
+        // AC-3 / EAC-3 (Dolby Digital) audio: Chromium's MSE rejects the
+        // 'audio/mp4;codecs=ac-3' SourceBuffer type even with the full-codec
+        // ffmpeg.dll. Fall back to native <video> which uses ffmpeg directly
+        // and supports AC-3/EAC-3/DTS out of the box in the packaged build.
+        if (data.details === 'bufferAddCodecError') {
+          fallbackToNative('AC-3/Dolby audio is not supported in the built-in player — try opening in VLC.')
           return
         }
 

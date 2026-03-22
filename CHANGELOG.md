@@ -56,7 +56,12 @@
 - First-time installs skip the dialog entirely
 - All installer-only code guarded with `!ifndef BUILD_UNINSTALLER` to prevent NSIS warning-as-error failures during the uninstaller build pass
 
-#### 12 — Stalker Portal: play-time stream URL resolution
+#### 12 — AC-3 / Dolby Digital audio playback fix
+- HLS streams with AC-3/EAC-3 audio previously crashed with `addSourceBuffer` failed — Chromium's MSE does not support `audio/mp4;codecs=ac-3`
+- Player now catches `bufferAddCodecError` from HLS.js and falls back to native `<video>` element playback, which uses the full-codec `ffmpeg.dll` and supports AC-3/EAC-3/DTS
+- Shared the existing `manifestLoadTimeOut` fallback logic into a reusable helper to avoid code duplication
+
+#### 13 — Stalker Portal: play-time stream URL resolution
 - Stalker channels previously resolved all `create_link` URLs at playlist load time with a single token, causing token expiry failures on large portals
 - Channels now load instantly with the raw portal command stored; `create_link` is called with a fresh handshake token at the moment a channel is played
 - Applies to both in-app playback and "Open in External Player" (VLC etc.)
