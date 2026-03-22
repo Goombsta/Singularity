@@ -3,6 +3,7 @@ import Hls from 'hls.js'
 import mpegts from 'mpegts.js'
 import { usePlayerStore } from '../stores/playerStore'
 import PlayerControls from './PlayerControls'
+import { resolveChannelUrl } from '../utils/stalkerApi'
 
 // ─── Series Episode Picker ─────────────────────────────────────────────────
 
@@ -155,6 +156,9 @@ export default function Player(): JSX.Element {
   const [episodeUrl, setEpisodeUrl] = useState<string | null>(null)
   const [episodeTitle, setEpisodeTitle] = useState<string | null>(null)
 
+  // Stalker channels: resolved URL from create_link (null while pending)
+  const [stalkerUrl, setStalkerUrl] = useState<string | null>(null)
+
   const {
     url,
     channel,
@@ -176,6 +180,21 @@ export default function Player(): JSX.Element {
   useEffect(() => {
     setEpisodeUrl(null)
     setEpisodeTitle(null)
+  }, [channel?.id])
+
+  // Stalker URL resolution — get a fresh token + create_link on every channel change
+  useEffect(() => {
+    if (!channel?.stalkerCmd) {
+      setStalkerUrl(null)
+      return
+    }
+    let cancelled = false
+    setStalkerUrl(null)
+    setLoading(true)
+    resolveChannelUrl(channel)
+      .then((resolved) => { if (!cancelled) setStalkerUrl(resolved) })
+      .catch((err) => { if (!cancelled) setError(err instanceof Error ? err.message : String(err)) })
+    return () => { cancelled = true }
   }, [channel?.id])
 
   // Controls auto-hide
@@ -224,8 +243,12 @@ export default function Player(): JSX.Element {
   }, [isPlaying, isPaused])
 
   // Determine the effective URL to load into the video element
-  // For series: use episodeUrl (set when user picks an episode), otherwise null
-  const effectiveUrl = channel?.streamType === 'series' ? episodeUrl : url
+  // Series: episodeUrl | Stalker: stalkerUrl (wait for resolution) | otherwise: url from store
+  const effectiveUrl = channel?.streamType === 'series'
+    ? episodeUrl
+    : channel?.stalkerCmd
+      ? stalkerUrl   // null until create_link resolves — keeps player from loading localhost
+      : url
 
   // When the URL is cleared (e.g. playlist switch → stop()), tear down immediately
   useEffect(() => {

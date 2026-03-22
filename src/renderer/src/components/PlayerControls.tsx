@@ -4,6 +4,7 @@ import { usePlayerStore } from '../stores/playerStore'
 import { useSettingsStore } from '../stores/settingsStore'
 import { formatDuration } from '../utils/formatters'
 import CastDevicePicker from './CastDevicePicker'
+import { resolveChannelUrl } from '../utils/stalkerApi'
 import type { RefObject } from 'react'
 
 interface Props {
@@ -50,7 +51,12 @@ export default function PlayerControls({ visible, videoRef }: Props): JSX.Elemen
   const handleExternalPlayer = async () => {
     if (!channel || !settings.defaultExternalPlayer) return
     const player = settings.externalPlayers.find((p) => p.name === settings.defaultExternalPlayer)
-    if (player) await window.api.player.openExternal(player.path, channel.url)
+    if (!player) return
+    // Stalker channels need a fresh create_link URL — never pass the raw localhost cmd to VLC
+    const streamUrl = channel.stalkerCmd
+      ? await resolveChannelUrl(channel)
+      : channel.url
+    await window.api.player.openExternal(player.path, streamUrl)
   }
 
   const [showStreamInfo, setShowStreamInfo] = useStreamInfoToggle()

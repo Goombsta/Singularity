@@ -9,6 +9,10 @@ export interface Channel {
   number?: number
   isFavorite?: boolean
   streamType?: 'live' | 'vod' | 'series'
+  // Stalker portal channels — resolved at play time to avoid token expiry
+  stalkerCmd?: string     // raw portal cmd (e.g. "http://localhost/ch/539_")
+  stalkerPortal?: string  // portal base URL for re-authentication
+  stalkerMac?: string     // MAC address for re-authentication
 }
 
 export interface ChannelGroup {

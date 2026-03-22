@@ -91,6 +91,22 @@ async function createLink(
   return extractStreamUrl(data.js.cmd)
 }
 
+// ── Resolve a Stalker channel URL at play time (fresh token every call) ────
+// Called by the player and external player handler instead of pre-resolving
+// all URLs at playlist load time, which caused token-expiry failures on large
+// portals.
+export async function resolveChannelUrl(channel: {
+  url: string
+  stalkerCmd?: string
+  stalkerPortal?: string
+  stalkerMac?: string
+}): Promise<string> {
+  const { stalkerCmd, stalkerPortal, stalkerMac } = channel
+  if (!stalkerCmd || !stalkerPortal || !stalkerMac) return channel.url
+  const token = await stalkerHandshake({ portal: stalkerPortal, mac: stalkerMac })
+  return createLink(stalkerPortal, stalkerMac, token, stalkerCmd)
+}
+
 // ── Live channels ──────────────────────────────────────────────────────────
 
 export async function stalkerGetLive(creds: StalkerCredentials): Promise<Channel[]> {
@@ -130,18 +146,14 @@ export async function stalkerGetLive(creds: StalkerCredentials): Promise<Channel
   const channels: Channel[] = []
   for (const ch of chanData.js?.data || []) {
     if (!ch.cmd) continue
-    let streamUrl = extractStreamUrl(ch.cmd)
-    if (needsCreateLink(streamUrl)) {
-      try {
-        streamUrl = await createLink(portal, mac, token, ch.cmd)
-      } catch {
-        continue // Skip unresolvable channels
-      }
-    }
+    const rawCmd = extractStreamUrl(ch.cmd)
     channels.push({
       id: `stalker-live-${ch.id}`,
       name: ch.name,
-      url: streamUrl,
+      url: rawCmd,         // raw cmd stored; resolved to real URL at play time
+      stalkerCmd: rawCmd,
+      stalkerPortal: portal,
+      stalkerMac: mac,
       group: genreMap.get(String(ch.tv_genre_id)) || 'General',
       logo: ch.logo || '',
       number: ch.number,
@@ -178,18 +190,14 @@ export async function stalkerGetVod(creds: StalkerCredentials): Promise<Channel[
 
     for (const item of items) {
       if (!item.cmd) continue
-      let streamUrl = extractStreamUrl(item.cmd)
-      if (needsCreateLink(streamUrl)) {
-        try {
-          streamUrl = await createLink(portal, mac, token, item.cmd)
-        } catch {
-          continue
-        }
-      }
+      const rawCmd = extractStreamUrl(item.cmd)
       channels.push({
         id: `stalker-vod-${item.id}`,
         name: item.name,
-        url: streamUrl,
+        url: rawCmd,         // raw cmd stored; resolved to real URL at play time
+        stalkerCmd: rawCmd,
+        stalkerPortal: portal,
+        stalkerMac: mac,
         group: 'VOD',
         logo: item.logo || '',
         streamType: 'vod',
