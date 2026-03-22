@@ -6,6 +6,7 @@ import { usePlayerStore } from '../stores/playerStore'
 import { getProgramsInRange, getCurrentProgram } from '../utils/xmltvParser'
 import { formatTime, getProgramProgress } from '../utils/formatters'
 import type { EpgProgram } from '../types'
+import MiniPlayer from './MiniPlayer'
 
 const HOUR_WIDTH = 280 // px per hour
 const ROW_HEIGHT = 60 // px per channel row
@@ -29,7 +30,7 @@ interface EPGViewProps {
 export default function EPGView({ onChannelPlay }: EPGViewProps): JSX.Element {
   const { channels: epgMap, loading } = useEpgStore()
   const { filteredChannels } = usePlaylistStore()
-  const { play } = usePlayerStore()
+  const { play, channel: playingChannel, url: playingUrl } = usePlayerStore()
   const scrollRef = useRef<HTMLDivElement>(null)
   const channelColRef = useRef<HTMLDivElement>(null)
 
@@ -95,6 +96,89 @@ export default function EPGView({ onChannelPlay }: EPGViewProps): JSX.Element {
           </p>
         </div>
       </div>
+
+      {/* Preview panel — shown when a channel is currently playing */}
+      {playingChannel && playingUrl && (() => {
+        const epgCh = playingChannel.tvgId ? epgMap.get(playingChannel.tvgId) : undefined
+        const currentProg = epgCh ? getCurrentProgram(epgCh.programs) : undefined
+        const durationMin = currentProg
+          ? Math.round((currentProg.end.getTime() - currentProg.start.getTime()) / 60000)
+          : null
+
+        return (
+          <div
+            className="flex-shrink-0 flex gap-4 px-4 py-3"
+            style={{ borderBottom: '1px solid var(--border-hard)', background: 'var(--bg-surface)' }}
+          >
+            {/* Mini video */}
+            <MiniPlayer
+              url={playingUrl}
+              className="flex-shrink-0 rounded-xl"
+              style={{ width: 256, height: 144 }}
+            />
+
+            {/* Program info */}
+            <div className="flex flex-col justify-center flex-1 min-w-0 gap-1.5 relative">
+              {/* Group badge */}
+              {playingChannel.group && (
+                <span
+                  className="absolute top-0 right-0 text-xs px-2 py-0.5 rounded-full font-medium"
+                  style={{ background: 'var(--bg-base)', color: 'var(--text-secondary)', border: '1px solid var(--border-hard)' }}
+                >
+                  {playingChannel.group}
+                </span>
+              )}
+
+              {/* Channel name + logo */}
+              <div className="flex items-center gap-2">
+                {playingChannel.logo && (
+                  <img
+                    src={playingChannel.logo}
+                    alt=""
+                    className="w-6 h-6 object-contain rounded flex-shrink-0"
+                    onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }}
+                  />
+                )}
+                <span className="text-sm font-bold truncate" style={{ color: 'var(--text-primary)' }}>
+                  {playingChannel.name}
+                </span>
+              </div>
+
+              {/* Program title */}
+              <p
+                className="text-lg font-bold truncate"
+                style={{ fontFamily: 'Syne', letterSpacing: '-0.02em', color: 'var(--text-primary)' }}
+              >
+                {currentProg?.title ?? 'No program available'}
+              </p>
+
+              {/* Time range */}
+              {currentProg && (
+                <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>
+                  {formatTime(currentProg.start)} — {formatTime(currentProg.end)}
+                  {durationMin && ` · ${durationMin} min`}
+                </p>
+              )}
+
+              {/* Description */}
+              {currentProg?.description && (
+                <p
+                  className="text-xs line-clamp-2"
+                  style={{ color: 'var(--text-secondary)' }}
+                >
+                  {currentProg.description}
+                </p>
+              )}
+
+              {!currentProg && (
+                <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>
+                  No program info available
+                </p>
+              )}
+            </div>
+          </div>
+        )
+      })()}
 
       {epgMap.size === 0 ? (
         <div className="flex flex-col items-center justify-center flex-1 gap-4">

@@ -28,6 +28,7 @@ nsis:
   createStartMenuShortcut: true
   shortcutName: Singularity
   artifactName: Singularity Setup.exe
+  include: build/installer.nsh
 mac:
   target:
     - target: dmg

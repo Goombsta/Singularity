@@ -10,6 +10,7 @@ import EPGView from './components/EPGView'
 import PlaylistEditor from './components/PlaylistEditor'
 import Settings from './components/Settings'
 import StatusBar from './components/StatusBar'
+import FloatingPiP from './components/FloatingPiP'
 import { usePlaylistStore } from './stores/playlistStore'
 import { useSettingsStore } from './stores/settingsStore'
 import { useEpgStore } from './stores/epgStore'
@@ -22,7 +23,7 @@ export default function App(): JSX.Element {
   const { load: loadPlaylists, setFilterType } = usePlaylistStore()
   const { load: loadSettings, settings } = useSettingsStore()
   const { load: loadEpg } = useEpgStore()
-  const { isMultiview, toggleMultiview, setFullscreen, isFullscreen } = usePlayerStore()
+  const { isMultiview, toggleMultiview, setFullscreen, isFullscreen, channel } = usePlayerStore()
   const isAndroid = window.api?.platform === 'android'
 
   // Bootstrap
@@ -267,6 +268,13 @@ export default function App(): JSX.Element {
           )}
         </div>
       </div>
+
+      {/* Floating PiP — shown when a channel is playing but player view is not visible */}
+      <AnimatePresence>
+        {channel && !showPlayerSplit && !isMultiview && view !== 'epg' && (
+          <FloatingPiP onGoLive={() => handleViewChange('live')} />
+        )}
+      </AnimatePresence>
 
       <StatusBar />
     </div>
