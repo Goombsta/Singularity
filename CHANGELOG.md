@@ -46,10 +46,9 @@
 - Regenerated `build/icon.ico` from updated `icon-source.png` preserving alpha transparency
 - Sizes: 16, 32, 48, 64, 128, 256 px
 
-#### 11 — Windows installer: Fresh/Upgrade/Cancel upgrade dialog
+#### 11 — Windows installer: Fresh Install / Upgrade / Cancel dialog
 - `customInit` NSIS macro detects existing installation before any UI is shown
-- Dialog shows three choices: **Fresh** (removes old version first — recommended), **Upgrade** (keeps playlists and settings), **Cancel** (abort)
-- Button labels renamed from system defaults (Yes/No) to "Fresh" and "Upgrade" using a `WH_CBT` Windows hook via the NSIS `System::` plugin — hook fires on `HCBT_ACTIVATE` just before the dialog is shown, renames buttons via `SendMessageW`, then immediately unhooks
+- Dialog clearly describes three choices: **Fresh Install** (removes old version first — recommended), **Upgrade** (keeps playlists and settings), **Cancel** (exit)
 - Installed version number shown in the prompt
 - First-time installs skip the dialog entirely
 - All installer-only code guarded with `!ifndef BUILD_UNINSTALLER` to prevent NSIS warning-as-error failures during the uninstaller build pass
