@@ -61,7 +61,13 @@
 - Player now catches `bufferAddCodecError` from HLS.js and falls back to native `<video>` element playback, which uses the full-codec `ffmpeg.dll` and supports AC-3/EAC-3/DTS
 - Shared the existing `manifestLoadTimeOut` fallback logic into a reusable helper to avoid code duplication
 
-#### 13 — Stalker Portal: play-time stream URL resolution
+#### 13 — Multiview: per-panel volume sliders
+- Each multiview panel now has an independent volume slider (0–100%) in the hover controls overlay, between the channel dropdown and the mute button
+- Dragging to 0 auto-mutes the panel; dragging above 0 auto-unmutes
+- The mute button continues to work as a standalone toggle
+- Volume level persists per panel independently of the mute state
+
+#### 14 — Stalker Portal: play-time stream URL resolution
 - Stalker channels previously resolved all `create_link` URLs at playlist load time with a single token, causing token expiry failures on large portals
 - Channels now load instantly with the raw portal command stored; `create_link` is called with a fresh handshake token at the moment a channel is played
 - Applies to both in-app playback and "Open in External Player" (VLC etc.)
