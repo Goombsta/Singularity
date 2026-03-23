@@ -32,6 +32,7 @@ interface PlayerStore extends PlayerState {
   setMultiviewChannel: (panelId: string, channel: Channel | null) => void
   setPrimaryPanel: (panelId: string) => void
   togglePanelMute: (panelId: string) => void
+  setPanelVolume: (panelId: string, volume: number) => void
 
   // Casting
   castDevices: CastDevice[]
@@ -44,10 +45,10 @@ interface PlayerStore extends PlayerState {
 }
 
 const defaultPanels: MultiviewPanel[] = [
-  { id: 'p1', channel: null, isPrimary: true, isMuted: false },
-  { id: 'p2', channel: null, isPrimary: false, isMuted: true },
-  { id: 'p3', channel: null, isPrimary: false, isMuted: true },
-  { id: 'p4', channel: null, isPrimary: false, isMuted: true },
+  { id: 'p1', channel: null, isPrimary: true,  isMuted: true, volume: 1 },
+  { id: 'p2', channel: null, isPrimary: false, isMuted: true, volume: 1 },
+  { id: 'p3', channel: null, isPrimary: false, isMuted: true, volume: 1 },
+  { id: 'p4', channel: null, isPrimary: false, isMuted: true, volume: 1 },
 ]
 
 export const usePlayerStore = create<PlayerStore>((set, get) => ({
@@ -136,6 +137,13 @@ export const usePlayerStore = create<PlayerStore>((set, get) => ({
     set((s) => ({
       multiviewPanels: s.multiviewPanels.map((p) =>
         p.id === panelId ? { ...p, isMuted: !p.isMuted } : p
+      ),
+    })),
+
+  setPanelVolume: (panelId, volume) =>
+    set((s) => ({
+      multiviewPanels: s.multiviewPanels.map((p) =>
+        p.id === panelId ? { ...p, volume, isMuted: volume === 0 } : p
       ),
     })),
 

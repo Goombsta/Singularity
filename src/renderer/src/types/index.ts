@@ -92,6 +92,7 @@ export interface MultiviewPanel {
   channel: Channel | null
   isPrimary: boolean
   isMuted: boolean
+  volume: number
 }
 
 export type SidebarView = 'live' | 'vod' | 'series' | 'epg' | 'editor' | 'settings'

@@ -13,17 +13,22 @@ interface MiniPlayerProps {
 }
 
 function MiniPlayer({ panel, allChannels }: MiniPlayerProps): JSX.Element {
+  // Must be inside component so window.api is already set by main.tsx
+  const isAndroid = window.api?.platform === 'android'
+
   const videoRef = useRef<HTMLVideoElement>(null)
   const hlsRef = useRef<Hls | null>(null)
   const mpegtsRef = useRef<mpegts.Player | null>(null)
-  const { setPrimaryPanel, togglePanelMute, setMultiviewChannel } = usePlayerStore()
+  const { setPrimaryPanel, togglePanelMute, setMultiviewChannel, setPanelVolume } = usePlayerStore()
 
   // Category → channel two-step selector
   const categories = [...new Set(allChannels.map((c) => c.group))].sort()
   const [selCategory, setSelCategory] = useState<string>('')
-  const channelsInCat = selCategory
-    ? allChannels.filter((c) => c.group === selCategory)
-    : []
+  const [channelSearch, setChannelSearch] = useState('')
+  const channelsInCat = selCategory ? allChannels.filter((c) => c.group === selCategory) : []
+  const filteredInCat = channelSearch
+    ? channelsInCat.filter((c) => c.name.toLowerCase().includes(channelSearch.toLowerCase()))
+    : channelsInCat
 
   const loadChannel = useCallback(
     (ch: Channel) => {
@@ -46,13 +51,20 @@ function MiniPlayer({ panel, allChannels }: MiniPlayerProps): JSX.Element {
       const isHls = url.includes('.m3u8') || (url.includes('/live/') && !url.endsWith('.ts'))
       const isMpegTs = url.endsWith('.ts')
 
+      // Always mute before play — required for Android autoplay policy.
+      // The mute/volume useEffects will restore the panel's preferences after load.
+      video.muted = true
+      video.volume = panel.volume
+
       if (Hls.isSupported() && isHls) {
         const hls = new Hls({ lowLatencyMode: true, maxBufferLength: 30 })
         hlsRef.current = hls
         hls.loadSource(url)
         hls.attachMedia(video)
-        hls.on(Hls.Events.MANIFEST_PARSED, () => video.play().catch(() => {}))
-      } else if (isMpegTs && mpegts.isSupported()) {
+        hls.on(Hls.Events.MANIFEST_PARSED, () => {
+          video.play().catch(() => {})
+        })
+      } else if (isMpegTs) {
         const player = mpegts.createPlayer(
           { type: 'mpegts', url, isLive: true },
           {
@@ -70,10 +82,8 @@ function MiniPlayer({ panel, allChannels }: MiniPlayerProps): JSX.Element {
         video.addEventListener('canplay', () => video.play().catch(() => {}), { once: true })
       } else {
         video.src = url
-        video.play().catch(() => {})
+        video.addEventListener('canplay', () => video.play().catch(() => {}), { once: true })
       }
-
-      video.muted = panel.isMuted
     },
     [panel.id, panel.isMuted, setMultiviewChannel]
   )
@@ -82,6 +92,11 @@ function MiniPlayer({ panel, allChannels }: MiniPlayerProps): JSX.Element {
   useEffect(() => {
     if (videoRef.current) videoRef.current.muted = panel.isMuted
   }, [panel.isMuted])
+
+  // Sync volume level
+  useEffect(() => {
+    if (videoRef.current) videoRef.current.volume = panel.volume
+  }, [panel.volume])
 
   // Cleanup on unmount
   useEffect(() => {
@@ -141,17 +156,17 @@ function MiniPlayer({ panel, allChannels }: MiniPlayerProps): JSX.Element {
         </div>
       )}
 
-      {/* Controls overlay — visible on hover */}
+      {/* Controls overlay — always visible on Android (no hover on touch), hover-only on desktop */}
       <div
-        className="absolute bottom-0 inset-x-0 opacity-0 group-hover:opacity-100 transition-opacity"
+        className={`absolute bottom-0 inset-x-0 transition-opacity ${isAndroid ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}
         style={{
           background: 'linear-gradient(to top, rgba(4,5,12,0.97) 0%, transparent 100%)',
-          padding: '28px 8px 8px',
+          padding: isAndroid ? '20px 6px 6px' : '28px 8px 8px',
         }}
         onClick={(e) => e.stopPropagation()}
       >
         {/* Channel name + prev/next */}
-        <div className="flex items-center gap-1 mb-1.5">
+        <div className="flex items-center gap-1 mb-1">
           <motion.button
             className="btn w-6 h-6 rounded-md flex-shrink-0"
             style={{ background: 'rgba(255,255,255,0.15)' }}
@@ -165,7 +180,7 @@ function MiniPlayer({ panel, allChannels }: MiniPlayerProps): JSX.Element {
           </motion.button>
 
           <p className="flex-1 text-xs text-white truncate text-center font-medium">
-            {panel.channel?.name || 'No channel selected'}
+            {panel.channel?.name || 'No channel'}
           </p>
 
           <motion.button
@@ -181,18 +196,19 @@ function MiniPlayer({ panel, allChannels }: MiniPlayerProps): JSX.Element {
           </motion.button>
         </div>
 
-        {/* Row 1: Category dropdown */}
+        {/* Category dropdown */}
         <select
-          className="w-full text-xs rounded-md px-2 py-1 mb-1"
+          className="w-full text-xs rounded-md px-2 mb-1"
           style={{
             background: 'rgba(14,16,28,0.97)',
             color: 'rgba(255,255,255,0.85)',
             border: '1px solid rgba(255,255,255,0.18)',
             outline: 'none',
             cursor: 'pointer',
+            height: 26,
           }}
           value={selCategory}
-          onChange={(e) => setSelCategory(e.target.value)}
+          onChange={(e) => { setSelCategory(e.target.value); setChannelSearch('') }}
           onClick={(e) => e.stopPropagation()}
         >
           <option value="" style={{ background: '#0e1020', color: '#ccc' }}>— Select category —</option>
@@ -203,21 +219,41 @@ function MiniPlayer({ panel, allChannels }: MiniPlayerProps): JSX.Element {
           ))}
         </select>
 
-        {/* Row 2: Channel dropdown + mute */}
+        {/* Channel search — shown after category selected */}
+        {selCategory && (
+          <input
+            type="text"
+            placeholder="Search channels..."
+            value={channelSearch}
+            onChange={(e) => setChannelSearch(e.target.value)}
+            onClick={(e) => e.stopPropagation()}
+            className="w-full text-xs rounded-md px-2 mb-1"
+            style={{
+              background: 'rgba(14,16,28,0.97)',
+              color: 'rgba(255,255,255,0.9)',
+              border: '1px solid rgba(255,255,255,0.18)',
+              outline: 'none',
+              height: 26,
+            }}
+          />
+        )}
+
+        {/* Channel dropdown + volume + mute */}
         <div className="flex items-center gap-1">
           <select
-            className="flex-1 text-xs rounded-md px-2 py-1"
+            className="flex-1 text-xs rounded-md px-2"
             style={{
               background: 'rgba(14,16,28,0.97)',
               color: selCategory ? 'rgba(255,255,255,0.9)' : 'rgba(255,255,255,0.4)',
               border: '1px solid rgba(255,255,255,0.18)',
               outline: 'none',
               cursor: selCategory ? 'pointer' : 'default',
+              height: 26,
             }}
             value={panel.channel?.id || ''}
             disabled={!selCategory}
             onChange={(e) => {
-              const ch = channelsInCat.find((c) => c.id === e.target.value)
+              const ch = filteredInCat.find((c) => c.id === e.target.value)
               if (ch) loadChannel(ch)
             }}
             onClick={(e) => e.stopPropagation()}
@@ -225,12 +261,39 @@ function MiniPlayer({ panel, allChannels }: MiniPlayerProps): JSX.Element {
             <option value="" style={{ background: '#0e1020', color: '#ccc' }}>
               {selCategory ? '— Select channel —' : '← Pick a category first'}
             </option>
-            {channelsInCat.map((ch) => (
+            {filteredInCat.map((ch) => (
               <option key={ch.id} value={ch.id} style={{ background: '#0e1020', color: '#eee' }}>
                 {ch.name}
               </option>
             ))}
           </select>
+
+          {/* Volume slider */}
+          <input
+            type="range"
+            min={0}
+            max={1}
+            step={0.05}
+            value={panel.isMuted ? 0 : panel.volume}
+            onChange={(e) => {
+              e.stopPropagation()
+              setPanelVolume(panel.id, parseFloat(e.target.value))
+            }}
+            onPointerDown={(e) => e.stopPropagation()}
+            onClick={(e) => e.stopPropagation()}
+            title={`Volume: ${Math.round((panel.isMuted ? 0 : panel.volume) * 100)}%`}
+            style={{
+              width: 60,
+              flexShrink: 0,
+              WebkitAppearance: 'none',
+              appearance: 'none',
+              height: 3,
+              borderRadius: 2,
+              background: `linear-gradient(to right, rgba(255,255,255,0.85) ${(panel.isMuted ? 0 : panel.volume) * 100}%, rgba(255,255,255,0.25) ${(panel.isMuted ? 0 : panel.volume) * 100}%)`,
+              outline: 'none',
+              cursor: 'pointer',
+            }}
+          />
 
           {/* Mute toggle */}
           <motion.button
@@ -270,18 +333,8 @@ function MiniPlayer({ panel, allChannels }: MiniPlayerProps): JSX.Element {
 
 const LAYOUTS: { id: MultiviewLayout; label: string; icon: JSX.Element }[] = [
   {
-    id: '2h',
-    label: '2 Horizontal',
-    icon: (
-      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4">
-        <rect x="1" y="3" width="6" height="10" rx="1"/>
-        <rect x="9" y="3" width="6" height="10" rx="1"/>
-      </svg>
-    ),
-  },
-  {
     id: '2v',
-    label: '2 Vertical',
+    label: '2V',
     icon: (
       <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4">
         <rect x="2" y="1" width="12" height="6" rx="1"/>
@@ -290,8 +343,18 @@ const LAYOUTS: { id: MultiviewLayout; label: string; icon: JSX.Element }[] = [
     ),
   },
   {
+    id: '2h',
+    label: '2H',
+    icon: (
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4">
+        <rect x="1" y="3" width="6" height="10" rx="1"/>
+        <rect x="9" y="3" width="6" height="10" rx="1"/>
+      </svg>
+    ),
+  },
+  {
     id: '3',
-    label: '3 Panels',
+    label: '3',
     icon: (
       <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4">
         <rect x="1" y="1" width="7" height="14" rx="1"/>
@@ -302,7 +365,7 @@ const LAYOUTS: { id: MultiviewLayout; label: string; icon: JSX.Element }[] = [
   },
   {
     id: '4',
-    label: '4 Panels',
+    label: '4',
     icon: (
       <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4">
         <rect x="1" y="1" width="6" height="6" rx="1"/>
@@ -324,7 +387,6 @@ function getGridStyle(layout: MultiviewLayout): React.CSSProperties {
 }
 
 function getPanelStyle(layout: MultiviewLayout, panelIndex: number): React.CSSProperties {
-  // In 3-panel layout, first panel spans both columns across the top
   if (layout === '3' && panelIndex === 0) return { gridColumn: '1 / 3' }
   return {}
 }
@@ -336,8 +398,18 @@ function getVisiblePanelCount(layout: MultiviewLayout): number {
 }
 
 export default function Multiview(): JSX.Element {
+  // Must be inside component so window.api is already set by main.tsx
+  const isAndroid = window.api?.platform === 'android'
+
   const { multiviewPanels, multiviewLayout, toggleMultiview, setMultiviewLayout } = usePlayerStore()
-  const { playlists, activePlaylistId } = usePlaylistStore()
+  const { playlists, activePlaylistId, setSearchQuery } = usePlaylistStore()
+
+  // On Android portrait, default to 2v (stacked) — much better than side-by-side
+  useEffect(() => {
+    if (isAndroid && (multiviewLayout === '4' || multiviewLayout === '2h')) {
+      setMultiviewLayout('2v')
+    }
+  }, [])
 
   // Use the raw unfiltered live channels so Live TV search/group selection doesn't limit Multiview
   const filteredChannels = (() => {
@@ -349,36 +421,44 @@ export default function Multiview(): JSX.Element {
   const visibleCount = getVisiblePanelCount(multiviewLayout)
   const visiblePanels = multiviewPanels.slice(0, visibleCount)
 
+  const handleExit = () => {
+    setSearchQuery('')
+    toggleMultiview()
+  }
+
   return (
-    <div className="flex flex-col h-full p-4 gap-3">
+    <div className="flex flex-col h-full gap-2" style={{ padding: isAndroid ? '8px' : '16px', paddingBottom: isAndroid ? 4 : 12 }}>
       {/* Header */}
-      <div className="flex items-center justify-between flex-shrink-0 gap-4">
-        <div>
-          <h2 className="text-xl font-bold text-metallic" style={{ fontFamily: 'Syne', letterSpacing: '-0.03em' }}>
-            Multiview
-          </h2>
-          <p className="text-xs mt-0.5" style={{ color: 'var(--text-secondary)' }}>
-            Hover a panel · Pick category → channel · ← → to browse
-          </p>
-        </div>
+      <div className="flex items-center justify-between flex-shrink-0 gap-2">
+        {!isAndroid && (
+          <div className="flex-shrink-0">
+            <h2 className="text-xl font-bold text-metallic" style={{ fontFamily: 'Syne', letterSpacing: '-0.03em' }}>
+              Multiview
+            </h2>
+            <p className="text-xs mt-0.5" style={{ color: 'var(--text-secondary)' }}>
+              Hover a panel · Pick category → channel · ← → to browse
+            </p>
+          </div>
+        )}
 
         {/* Layout selector */}
         <div className="flex items-center gap-1 flex-1 justify-center">
           {LAYOUTS.map((l) => (
             <motion.button
               key={l.id}
-              className="btn flex flex-col items-center gap-1 px-3 py-1.5 rounded-lg text-xs"
+              className="btn flex flex-col items-center gap-0.5 rounded-lg"
               style={{
                 background: multiviewLayout === l.id ? 'rgba(91,127,166,0.2)' : 'var(--bg-surface)',
                 color: multiviewLayout === l.id ? 'var(--accent)' : 'var(--text-secondary)',
                 border: multiviewLayout === l.id ? '1px solid rgba(91,127,166,0.4)' : '1px solid var(--border-hard)',
+                padding: isAndroid ? '5px 10px' : '6px 12px',
               }}
               whileTap={{ scale: 0.95 }}
               onClick={() => setMultiviewLayout(l.id)}
               title={l.label}
             >
               {l.icon}
-              <span style={{ fontSize: 10 }}>{l.label}</span>
+              <span style={{ fontSize: 9 }}>{l.label}</span>
             </motion.button>
           ))}
         </div>
@@ -386,14 +466,14 @@ export default function Multiview(): JSX.Element {
         <motion.button
           className="btn-neu btn text-xs px-3 py-1.5 flex-shrink-0"
           whileTap={{ scale: 0.97 }}
-          onClick={toggleMultiview}
+          onClick={handleExit}
         >
           Exit
         </motion.button>
       </div>
 
-      {/* Grid — min-h-0 prevents flex children from overflowing the container */}
-      <div className="flex-1 grid gap-3 min-h-0" style={getGridStyle(multiviewLayout)}>
+      {/* Grid */}
+      <div className="flex-1 grid min-h-0" style={{ ...getGridStyle(multiviewLayout), gap: isAndroid ? 6 : 12 }}>
         {visiblePanels.map((panel, i) => (
           <div key={panel.id} className="min-h-0 h-full" style={getPanelStyle(multiviewLayout, i)}>
             <MiniPlayer panel={panel} allChannels={filteredChannels} />
