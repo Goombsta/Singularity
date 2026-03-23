@@ -1,3 +1,4 @@
+import { useRef } from 'react'
 import { motion } from 'framer-motion'
 import type { SidebarView } from '../types'
 import { usePlayerStore } from '../stores/playerStore'
@@ -33,6 +34,16 @@ const NAV_ITEMS: { id: SidebarView; label: string; icon: JSX.Element }[] = [
     ),
   },
   {
+    id: 'editor',
+    label: 'Playlists',
+    icon: (
+      <svg width="18" height="18" viewBox="0 0 15 15" fill="none" stroke="currentColor" strokeWidth="1.5">
+        <path d="M2 3.5h7M2 7.5h5.5M2 11.5h7"/>
+        <path d="M10.5 8.5l1.5 1.5 2.5-2.5"/>
+      </svg>
+    ),
+  },
+  {
     id: 'epg',
     label: 'EPG Guide',
     icon: (
@@ -61,11 +72,37 @@ interface Props {
 
 export default function BottomNav({ view, onViewChange }: Props): JSX.Element {
   const { isMultiview, toggleMultiview } = usePlayerStore()
+  const btnRefs = useRef<(HTMLButtonElement | null)[]>([])
 
-  const handleNavClick = (newView: SidebarView) => {
+  const handleNavClick = (newView: SidebarView | 'multiview') => {
+    if (newView === 'multiview') {
+      toggleMultiview()
+      return
+    }
+    // Exit multiview when switching to any other view
     if (isMultiview) toggleMultiview()
     onViewChange(newView)
   }
+
+  const multiviewItem = {
+    id: 'multiview' as const,
+    label: 'Multiview',
+    icon: (
+      <svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" strokeWidth="1.5">
+        <rect x="1" y="1" width="7" height="7" rx="1"/>
+        <rect x="10" y="1" width="7" height="7" rx="1"/>
+        <rect x="1" y="10" width="7" height="7" rx="1"/>
+        <rect x="10" y="10" width="7" height="7" rx="1"/>
+      </svg>
+    ),
+  }
+
+  // Insert Multiview before Settings (last item)
+  const allItems = [
+    ...NAV_ITEMS.slice(0, -1),
+    multiviewItem,
+    NAV_ITEMS[NAV_ITEMS.length - 1],
+  ]
 
   return (
     <div
@@ -80,12 +117,27 @@ export default function BottomNav({ view, onViewChange }: Props): JSX.Element {
         zIndex: 50,
       }}
     >
-      {NAV_ITEMS.map((item) => {
-        const isActive = view === item.id && !isMultiview
+      {allItems.map((item, idx) => {
+        const isActive = item.id === 'multiview'
+          ? isMultiview
+          : (view === item.id && !isMultiview)
         return (
           <motion.button
             key={item.id}
+            ref={(el) => { btnRefs.current[idx] = el }}
+            tabIndex={0}
             onClick={() => handleNavClick(item.id)}
+            onKeyDown={(e) => {
+              if (e.key === 'ArrowRight') {
+                e.preventDefault()
+                const next = btnRefs.current[idx + 1]
+                next?.focus()
+              } else if (e.key === 'ArrowLeft') {
+                e.preventDefault()
+                const prev = btnRefs.current[idx - 1]
+                prev?.focus()
+              }
+            }}
             whileTap={{ scale: 0.92 }}
             style={{
               flex: 1,
@@ -94,17 +146,18 @@ export default function BottomNav({ view, onViewChange }: Props): JSX.Element {
               alignItems: 'center',
               justifyContent: 'center',
               gap: 3,
-              padding: '8px 4px',
+              padding: '8px 2px',
               border: 'none',
               background: 'transparent',
               cursor: 'pointer',
               color: isActive ? 'var(--accent)' : 'var(--text-secondary)',
               transition: 'color 150ms',
               minHeight: 52,
+              position: 'relative',
             }}
           >
             {item.icon}
-            <span style={{ fontSize: 10, fontWeight: isActive ? 600 : 400, letterSpacing: 0.2 }}>
+            <span style={{ fontSize: 9, fontWeight: isActive ? 600 : 400, letterSpacing: 0.2 }}>
               {item.label}
             </span>
             {isActive && (

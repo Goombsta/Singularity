@@ -67,6 +67,14 @@
 - The mute button continues to work as a standalone toggle
 - Volume level persists per panel independently of the mute state
 
+#### 15 — Security hardening (main process IPC)
+- Removed `webSecurity: false` from BrowserWindow; replaced with a targeted `session.defaultSession.webRequest.onHeadersReceived` intercept that injects `Access-Control-Allow-Origin` on HTTP/HTTPS responses only — Electron's same-origin and mixed-content protections remain active
+- Added Content Security Policy via the same session intercept: `script-src 'self'` blocks injected scripts; `media-src *` and `img-src *` keep IPTV streams and channel logos working
+- Added `assertSafePath()` to all three `fs:*` IPC handlers — file reads and writes are now restricted to the user's home directory and app data directory; paths outside those roots are rejected
+- Added `isSafeUrl()` scheme allowlist (`http`, `https`, `rtsp`, `rtmp`, `rtsps`, `rtmps`) applied to `shell.openExternal` and `player:openExternal` — blocks custom OS protocol handler exploits (e.g. `ms-msdt://`, `search://`)
+- Added URL scheme validation and sensitive header blocking (`host`, `cookie`, `authorization`, `proxy-authorization`, `x-forwarded-for`) to the `net:fetch` IPC proxy handler
+- Added `.env.*` to `.gitignore` to cover `.env.local`, `.env.production`, and other variant files
+
 #### 14 — Stalker Portal: play-time stream URL resolution
 - Stalker channels previously resolved all `create_link` URLs at playlist load time with a single token, causing token expiry failures on large portals
 - Channels now load instantly with the raw portal command stored; `create_link` is called with a fresh handshake token at the moment a channel is played

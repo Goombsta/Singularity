@@ -196,6 +196,7 @@ function EPGPreviewPanel({ playingChannel, playingUrl, currentProg, durationMin 
 // ─────────────────────────────────────────────────────────────────────────────
 
 export default function EPGView(): JSX.Element {
+  const isAndroid = window.api?.platform === 'android'
   const { channels: epgMap, loading } = useEpgStore()
   const { filteredChannels } = usePlaylistStore()
   const { play, channel: playingChannel, url: playingUrl } = usePlayerStore()
@@ -256,13 +257,15 @@ export default function EPGView(): JSX.Element {
         </p>
       </div>
 
-      {/* Preview panel — always shown */}
-      <EPGPreviewPanel
-        playingChannel={playingChannel}
-        playingUrl={playingUrl}
-        currentProg={currentProg}
-        durationMin={durationMin}
-      />
+      {/* Preview panel — desktop only (480px wide, overflows portrait phones) */}
+      {!isAndroid && (
+        <EPGPreviewPanel
+          playingChannel={playingChannel}
+          playingUrl={playingUrl}
+          currentProg={currentProg}
+          durationMin={durationMin}
+        />
+      )}
 
       {epgMap.size === 0 ? (
         <div className="flex flex-col items-center justify-center flex-1 gap-4">
@@ -279,8 +282,8 @@ export default function EPGView(): JSX.Element {
         </div>
       ) : (
         <div className="flex flex-1 overflow-hidden">
-          {/* Category column */}
-          {epgGroups.length > 0 && (
+          {/* Category column — hidden on Android (160px too wide for portrait phones) */}
+          {!isAndroid && epgGroups.length > 0 && (
             <div
               className="flex-shrink-0 flex flex-col overflow-hidden"
               style={{ width: CATEGORY_COL_WIDTH, borderRight: '1px solid var(--border-hard)', background: 'var(--bg-surface)' }}

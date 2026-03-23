@@ -1,10 +1,23 @@
-import { app, shell, BrowserWindow } from 'electron'
+import { app, shell, BrowserWindow, session } from 'electron'
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import { registerIpcHandlers } from './ipc'
 import * as castService from './castService'
 
 let mainWindow: BrowserWindow | null = null
+
+// ── Security helpers ──────────────────────────────────────────────────────────
+
+/** URL schemes safe to pass to shell.openExternal */
+const SAFE_URL_PROTOCOLS = new Set(['http:', 'https:', 'rtsp:', 'rtmp:', 'rtsps:', 'rtmps:'])
+
+function isSafeUrl(url: string): boolean {
+  try {
+    return SAFE_URL_PROTOCOLS.has(new URL(url).protocol)
+  } catch {
+    return false
+  }
+}
 
 function createWindow(): void {
   const isMac = process.platform === 'darwin'
@@ -21,8 +34,10 @@ function createWindow(): void {
     backgroundColor: '#f0f2f5',
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
+      // sandbox: false is required by @electron-toolkit/preload — the preload script
+      // uses Node.js APIs before handing off via contextBridge. contextIsolation
+      // remains true (the default) so the renderer still cannot call Node directly.
       sandbox: false,
-      webSecurity: false, // Allow loading IPTV streams from any origin
     },
   })
 
@@ -31,7 +46,8 @@ function createWindow(): void {
   })
 
   mainWindow.webContents.setWindowOpenHandler((details) => {
-    shell.openExternal(details.url)
+    // Only open URLs with safe schemes — blocks custom protocol handler exploits
+    if (isSafeUrl(details.url)) shell.openExternal(details.url)
     return { action: 'deny' }
   })
 
@@ -48,6 +64,36 @@ app.whenReady().then(() => {
   app.on('browser-window-created', (_, window) => {
     optimizer.watchWindowShortcuts(window)
   })
+
+  // ── CORS intercept ────────────────────────────────────────────────────────
+  // Inject Access-Control-Allow-Origin on HTTP/HTTPS responses so the renderer
+  // can fetch IPTV API endpoints that don't send CORS headers themselves.
+  // This replaces the previous webSecurity:false approach — it is narrowly
+  // scoped to external HTTP/HTTPS only, so Electron's other security features
+  // remain active.
+  session.defaultSession.webRequest.onHeadersReceived(
+    { urls: ['http://*/*', 'https://*/*'] },
+    (details, callback) => {
+      callback({
+        responseHeaders: {
+          ...details.responseHeaders,
+          'Access-Control-Allow-Origin': ['*'],
+          // Content-Security-Policy — restrict what the renderer can execute
+          // media-src * and img-src * allow IPTV streams and channel logos from
+          // any origin; script-src 'self' blocks injected scripts.
+          'Content-Security-Policy': [
+            "default-src 'self';" +
+              " script-src 'self';" +
+              " style-src 'self' 'unsafe-inline';" +
+              " media-src *;" +
+              " img-src * data: blob:;" +
+              " connect-src *;" +
+              " font-src 'self' data:",
+          ],
+        },
+      })
+    },
+  )
 
   registerIpcHandlers()
   createWindow()

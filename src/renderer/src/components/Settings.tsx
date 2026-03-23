@@ -12,6 +12,7 @@ type Tab = 'general' | 'playlists' | 'playback' | 'external' | 'cache' | 'about'
 
 export default function Settings(): JSX.Element {
   const [tab, setTab] = useState<Tab>('general')
+  const isAndroid = window.api?.platform === 'android'
   const { settings, update } = useSettingsStore()
   const { playlists, removePlaylist, refreshPlaylist } = usePlaylistStore()
   const { load: loadEpg, clear: clearEpg, lastUpdated } = useEpgStore()
@@ -25,7 +26,7 @@ export default function Settings(): JSX.Element {
     { id: 'general', label: 'General' },
     { id: 'playlists', label: 'Playlists' },
     { id: 'playback', label: 'Playback' },
-    { id: 'external', label: 'External Players' },
+    ...(!isAndroid ? [{ id: 'external' as Tab, label: 'External Players' }] : []),
     { id: 'cache', label: 'Cache' },
     { id: 'about', label: 'About' },
   ]
@@ -68,16 +69,20 @@ export default function Settings(): JSX.Element {
               value={settings.darkMode}
               onChange={(v) => update({ darkMode: v })}
             />
-            <Toggle
-              label="Start minimized"
-              value={settings.startMinimized}
-              onChange={(v) => update({ startMinimized: v })}
-            />
-            <Toggle
-              label="Minimize to tray on close"
-              value={settings.minimizeToTray}
-              onChange={(v) => update({ minimizeToTray: v })}
-            />
+            {!isAndroid && (
+              <>
+                <Toggle
+                  label="Start minimized"
+                  value={settings.startMinimized}
+                  onChange={(v) => update({ startMinimized: v })}
+                />
+                <Toggle
+                  label="Minimize to tray on close"
+                  value={settings.minimizeToTray}
+                  onChange={(v) => update({ minimizeToTray: v })}
+                />
+              </>
+            )}
             <Toggle
               label="Enable animations"
               value={settings.animationsEnabled}
@@ -225,11 +230,13 @@ export default function Settings(): JSX.Element {
             <h2 className="text-xl font-bold text-metallic" style={{ fontFamily: 'Syne', letterSpacing: '-0.03em' }}>
               Playback
             </h2>
-            <Toggle
-              label="Hardware acceleration (DXVA2/D3D11VA)"
-              value={settings.hardwareAcceleration}
-              onChange={(v) => update({ hardwareAcceleration: v })}
-            />
+            {!isAndroid && (
+              <Toggle
+                label="Hardware acceleration (DXVA2/D3D11VA)"
+                value={settings.hardwareAcceleration}
+                onChange={(v) => update({ hardwareAcceleration: v })}
+              />
+            )}
             <div>
               <p className="text-sm font-medium mb-2" style={{ color: 'var(--text-primary)' }}>
                 Buffer size: {settings.bufferSize}s

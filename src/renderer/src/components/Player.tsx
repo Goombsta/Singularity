@@ -159,6 +159,8 @@ export default function Player(): JSX.Element {
   // Stalker channels: resolved URL from create_link (null while pending)
   const [stalkerUrl, setStalkerUrl] = useState<string | null>(null)
 
+  const isAndroid = window.api?.platform === 'android'
+
   const {
     url,
     channel,
@@ -175,6 +177,9 @@ export default function Player(): JSX.Element {
     setIsLive,
     setFullscreen,
   } = usePlayerStore()
+
+  // Subscribe to error state so we can react to format errors on Android
+  const storeError = usePlayerStore((s) => s.error)
 
   // Reset episode state whenever channel changes
   useEffect(() => {
@@ -389,7 +394,11 @@ export default function Player(): JSX.Element {
         // ffmpeg.dll. Fall back to native <video> which uses ffmpeg directly
         // and supports AC-3/EAC-3/DTS out of the box in the packaged build.
         if (data.details === 'bufferAddCodecError') {
-          fallbackToNative('AC-3/Dolby audio is not supported in the built-in player — try opening in VLC.')
+          const isAndroid = window.api?.platform === 'android'
+          fallbackToNative(isAndroid
+            ? 'AC-3/Dolby audio is not supported in the built-in player — try an external player.'
+            : 'AC-3/Dolby audio is not supported in the built-in player — try opening in VLC.'
+          )
           return
         }
 
@@ -539,6 +548,22 @@ export default function Player(): JSX.Element {
       // ignore
     }
   }, [effectiveUrl, url])
+
+  // On Android, auto-forward to the system player when the WebView can't decode the format.
+  // This covers movies (MKV, HEVC, etc.) and series episodes with unsupported codecs.
+  // Use a ref so the effect dep array stays stable regardless of effectiveUrl changes.
+  const openInExternalRef = useRef(openInExternal)
+  openInExternalRef.current = openInExternal
+
+  useEffect(() => {
+    if (!isAndroid || !storeError) return
+    const isFormatError =
+      storeError.includes('Format not supported') ||
+      storeError.includes('not supported in browser')
+    if (isFormatError) {
+      openInExternalRef.current()
+    }
+  }, [storeError, isAndroid])
 
   // ── Series episode picker ──────────────────────────────────────
   if (channel?.streamType === 'series' && !episodeUrl) {

@@ -5,6 +5,7 @@ import { useSettingsStore } from '../stores/settingsStore'
 import { formatDuration } from '../utils/formatters'
 import CastDevicePicker from './CastDevicePicker'
 import { resolveChannelUrl } from '../utils/stalkerApi'
+import type { CastDevice } from '../../../shared/castTypes'
 import type { RefObject } from 'react'
 
 interface Props {
@@ -40,6 +41,7 @@ export default function PlayerControls({ visible, videoRef }: Props): JSX.Elemen
   } = usePlayerStore()
 
   const { settings } = useSettingsStore()
+  const isAndroid = window.api?.platform === 'android'
   const volumeRef = useRef<HTMLInputElement>(null)
 
   const handleSeek = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -61,6 +63,44 @@ export default function PlayerControls({ visible, videoRef }: Props): JSX.Elemen
 
   const [showStreamInfo, setShowStreamInfo] = useStreamInfoToggle()
   const [showCastPicker, setShowCastPicker] = useState(false)
+
+  const handleCastClick = () => {
+    if (!showCastPicker) {
+      // Trigger a fresh device scan when opening the picker
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      ;(window.api as any).cast?.refreshDiscovery?.()
+    }
+    setShowCastPicker(!showCastPicker)
+  }
+
+  // On Android, always prepend an "Open in External App" fallback so the user can
+  // open in VLC/MX Player even if no cast devices are discovered yet.
+  const ANDROID_EXTERNAL_DEVICE: CastDevice = {
+    id: 'android-external',
+    name: 'Open in External App',
+    type: 'chromecast',
+    host: '',
+    port: 0,
+  }
+  const displayCastDevices: CastDevice[] = isAndroid
+    ? [ANDROID_EXTERNAL_DEVICE, ...castDevices]
+    : castDevices
+
+  const handleCastSelect = async (deviceId: string) => {
+    if (deviceId === 'android-external') {
+      // Bypass the cast chain — open directly via ExternalPlayerPlugin (shows system app chooser).
+      const streamUrl = channel?.stalkerCmd
+        ? await resolveChannelUrl(channel)
+        : channel?.url
+      if (streamUrl) {
+        window.api.player.openExternal('', streamUrl)
+      }
+      setShowCastPicker(false)
+      return
+    }
+    startCast(deviceId)
+    setShowCastPicker(false)
+  }
 
   return (
     <AnimatePresence>
@@ -128,11 +168,12 @@ export default function PlayerControls({ visible, videoRef }: Props): JSX.Elemen
           <AnimatePresence>
             {showCastPicker && (
               <CastDevicePicker
-                devices={castDevices}
+                devices={displayCastDevices}
+                isScanning={castDevices.length === 0}
                 isCasting={isCasting}
                 castingDevice={castingDevice}
                 castError={castError}
-                onSelect={(id) => { startCast(id); setShowCastPicker(false) }}
+                onSelect={handleCastSelect}
                 onStop={() => { stopCast(); setShowCastPicker(false) }}
                 onClose={() => setShowCastPicker(false)}
               />
@@ -203,7 +244,7 @@ export default function PlayerControls({ visible, videoRef }: Props): JSX.Elemen
             {/* Cast button */}
             {!isMultiview && (
               <ControlBtn
-                onClick={() => setShowCastPicker(!showCastPicker)}
+                onClick={handleCastClick}
                 title="Cast to device"
                 style={isCasting ? { background: 'rgba(91,127,166,0.4)' } : undefined}
               >
@@ -270,7 +311,7 @@ function ControlBtn({
 }): JSX.Element {
   return (
     <motion.button
-      className="btn w-8 h-8 rounded-lg"
+      className="btn control-btn w-8 h-8 rounded-lg"
       style={{ background: 'rgba(255,255,255,0.15)', backdropFilter: 'blur(8px)', ...style }}
       whileHover={{ background: 'rgba(255,255,255,0.25)' }}
       whileTap={{ scale: 0.9 }}

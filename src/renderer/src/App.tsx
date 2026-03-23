@@ -11,6 +11,7 @@ import PlaylistEditor from './components/PlaylistEditor'
 import Settings from './components/Settings'
 import StatusBar from './components/StatusBar'
 import FloatingPiP from './components/FloatingPiP'
+import AndroidCategoryList from './components/AndroidCategoryList'
 import { usePlaylistStore } from './stores/playlistStore'
 import { useSettingsStore } from './stores/settingsStore'
 import { useEpgStore } from './stores/epgStore'
@@ -20,10 +21,10 @@ import type { SidebarView } from './types'
 
 export default function App(): JSX.Element {
   const [view, setView] = useState<SidebarView>('live')
-  const { load: loadPlaylists, setFilterType } = usePlaylistStore()
+  const { load: loadPlaylists, setFilterType, groups, activeGroup, setActiveGroup } = usePlaylistStore()
   const { load: loadSettings, settings } = useSettingsStore()
   const { load: loadEpg } = useEpgStore()
-  const { isMultiview, toggleMultiview, setFullscreen, isFullscreen, channel } = usePlayerStore()
+  const { isMultiview, toggleMultiview, setFullscreen, isFullscreen, channel, pause, resume, isPlaying } = usePlayerStore()
   const isAndroid = window.api?.platform === 'android'
   const [pipVisible, setPipVisible] = useState(true)
 
@@ -32,18 +33,19 @@ export default function App(): JSX.Element {
     async function init() {
       await loadSettings()
       await loadPlaylists()
-      // Start casting device discovery (Electron only)
+      // Start casting device discovery (Electron + Android/Capacitor)
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const castApi = (window.api as any).cast
       if (castApi) {
+        // Register listener BEFORE starting discovery to avoid race condition
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        castApi.onDevicesUpdated((devices: any) => {
+          usePlayerStore.getState().setCastDevices(devices)
+        })
         castApi.startDiscovery()
         // Fetch devices already found before this listener was registered
         castApi.getDevices().then((devices: any) => {
           if (devices?.length) usePlayerStore.getState().setCastDevices(devices)
-        })
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        castApi.onDevicesUpdated((devices: any) => {
-          usePlayerStore.getState().setCastDevices(devices)
         })
       }
     }
@@ -80,14 +82,17 @@ export default function App(): JSX.Element {
       else if (newView === 'vod') setFilterType('vod')
       else if (newView === 'series') setFilterType('series')
       else setFilterType('all')
+      // Reset category selection when switching views (Android)
+      if (isAndroid) setActiveGroup(null)
     },
-    [setFilterType]
+    [setFilterType, setActiveGroup]
   )
 
   // Re-show PiP whenever a new channel starts playing
   useEffect(() => { setPipVisible(true) }, [channel?.id])
 
   // ESC: exit fullscreen, exit multiview
+  // Fire OS media keys: Play/Pause (179)
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
@@ -96,11 +101,18 @@ export default function App(): JSX.Element {
         } else if (isMultiview) {
           toggleMultiview()
         }
+        return
+      }
+      // Fire OS remote media keys
+      const code = e.keyCode
+      if (code === 179) { // Play/Pause
+        e.preventDefault()
+        isPlaying ? pause() : resume()
       }
     }
     window.addEventListener('keydown', handler)
     return () => window.removeEventListener('keydown', handler)
-  }, [isFullscreen, isMultiview, setFullscreen, toggleMultiview])
+  }, [isFullscreen, isMultiview, setFullscreen, toggleMultiview, isPlaying, pause, resume])
 
   // Keyboard shortcuts
   useKeyboard({
@@ -138,15 +150,49 @@ export default function App(): JSX.Element {
                   <div style={{ flex: '0 0 40%', overflow: 'hidden' }}>
                     <Player />
                   </div>
-                  {/* Channel list fills remaining space */}
+                  {/* Channel list / category list fills remaining space */}
                   <div
                     style={{
                       flex: 1,
                       overflow: 'hidden',
                       borderTop: '1px solid var(--border-hard)',
+                      display: 'flex',
+                      flexDirection: 'column',
                     }}
                   >
-                    <ChannelList />
+                    {activeGroup === null && groups.length > 0 ? (
+                      <AndroidCategoryList />
+                    ) : (
+                      <>
+                        {activeGroup !== null && (
+                          <button
+                            onClick={() => setActiveGroup(null)}
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: 6,
+                              padding: '8px 12px',
+                              fontSize: 12,
+                              color: 'var(--accent)',
+                              background: 'transparent',
+                              border: 'none',
+                              borderBottom: '1px solid var(--border-hard)',
+                              cursor: 'pointer',
+                              width: '100%',
+                              textAlign: 'left' as const,
+                            }}
+                          >
+                            <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5">
+                              <path d="M8 2L4 6l4 4" />
+                            </svg>
+                            {activeGroup}
+                          </button>
+                        )}
+                        <div style={{ flex: 1, overflow: 'hidden' }}>
+                          <ChannelList />
+                        </div>
+                      </>
+                    )}
                   </div>
                 </motion.div>
               ) : view === 'epg' ? (
@@ -185,6 +231,17 @@ export default function App(): JSX.Element {
         </div>
 
         <StatusBar />
+
+        {/* FloatingPiP — shown when a channel is playing but not in player view */}
+        <AnimatePresence>
+          {channel && pipVisible && !showPlayerSplit && !isMultiview && view !== 'epg' && (
+            <FloatingPiP
+              onClose={() => setPipVisible(false)}
+              onGoLive={() => handleViewChange('live')}
+            />
+          )}
+        </AnimatePresence>
+
         <BottomNav view={view} onViewChange={handleViewChange} />
       </div>
     )

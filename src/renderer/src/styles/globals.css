@@ -357,7 +357,24 @@ body,
 }
 
 /* Exempt compact UI controls from the touch-target minimum */
-.android-mode .toggle-btn {
+.android-mode .toggle-btn,
+.android-mode .control-btn {
   min-height: unset;
   min-width: unset;
+}
+
+/* FireStick / D-pad: visible focus ring for keyboard navigation */
+.android-mode *:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* BottomNav and channel list items: suppress the 44px min on focusable-but-not-button elements */
+.android-mode [tabindex] {
+  outline: none;
+}
+.android-mode [tabindex]:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }

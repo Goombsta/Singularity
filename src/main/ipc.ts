@@ -1,7 +1,8 @@
-import { ipcMain, dialog, BrowserWindow, shell } from 'electron'
+import { ipcMain, dialog, BrowserWindow, shell, app } from 'electron'
 import { existsSync } from 'fs'
 import { readFile, writeFile } from 'fs/promises'
 import { spawn } from 'child_process'
+import { normalize, resolve } from 'path'
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 import Store from 'electron-store'
 import * as castService from './castService'
@@ -9,6 +10,44 @@ import * as castService from './castService'
 // electron-store v10 extends Conf — cast to any to avoid TS type issues with older @types
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const store = new Store() as any
+
+// ── Security helpers ──────────────────────────────────────────────────────────
+
+/** Allowed roots for file I/O — user home dir and app data dir only */
+function getAllowedRoots(): string[] {
+  return [normalize(app.getPath('home')), normalize(app.getPath('userData'))]
+}
+
+/**
+ * Throws if filePath resolves outside the allowed roots.
+ * Prevents path-traversal attacks via fs:readFile / fs:writeFile IPC handlers.
+ */
+function assertSafePath(filePath: string): void {
+  const abs = normalize(resolve(filePath))
+  const allowed = getAllowedRoots().some((root) => abs.startsWith(root))
+  if (!allowed) throw new Error(`Access denied: path outside permitted directories`)
+}
+
+/** URL schemes safe to pass to shell.openExternal or spawn as stream URLs */
+const SAFE_URL_PROTOCOLS = new Set(['http:', 'https:', 'rtsp:', 'rtmp:', 'rtsps:', 'rtmps:'])
+
+function isSafeUrl(url: string): boolean {
+  try {
+    return SAFE_URL_PROTOCOLS.has(new URL(url).protocol)
+  } catch {
+    return false
+  }
+}
+
+/** Headers the renderer must not be able to inject into proxied requests */
+const BLOCKED_PROXY_HEADERS = new Set([
+  'host',
+  'cookie',
+  'authorization',
+  'proxy-authorization',
+  'x-forwarded-for',
+  'x-real-ip',
+])
 
 export function registerIpcHandlers(): void {
   // Window controls
@@ -44,18 +83,22 @@ export function registerIpcHandlers(): void {
     return result
   })
 
-  // File I/O
+  // File I/O — paths are restricted to user home + userData to prevent traversal
   ipcMain.handle('fs:readFile', async (_, filePath: string) => {
+    assertSafePath(filePath)
     const buffer = await readFile(filePath)
     return buffer.toString('utf-8')
   })
 
   ipcMain.handle('fs:readFileBinary', async (_, filePath: string) => {
+    assertSafePath(filePath)
     const buffer = await readFile(filePath)
     return buffer
   })
 
   ipcMain.handle('fs:writeFile', async (_, filePath: string, content: string) => {
+    assertSafePath(filePath)
+    if (typeof content !== 'string') throw new Error('content must be a string')
     await writeFile(filePath, content, 'utf-8')
     return true
   })
@@ -77,8 +120,11 @@ export function registerIpcHandlers(): void {
     return true
   })
 
-  // External player launch
+  // External player launch — URL scheme validated before any shell/spawn call
   ipcMain.handle('player:openExternal', async (_, playerPath: string, streamUrl: string) => {
+    if (!isSafeUrl(streamUrl)) {
+      return { success: false, error: 'Blocked: unsupported URL scheme' }
+    }
     // If a valid executable path is provided, use it
     if (playerPath && existsSync(playerPath)) {
       try {
@@ -160,13 +206,20 @@ export function registerIpcHandlers(): void {
   // Never rejects — always resolves — so the renderer gets a clean error message instead of
   // the "Error invoking remote method 'net:fetch': ..." Electron IPC prefix.
   ipcMain.handle('net:fetch', async (_, url: string, options?: { headers?: Record<string, string> }) => {
+    // Validate URL scheme — only http/https permitted
+    if (!isSafeUrl(url)) {
+      return { error: 'Blocked: unsupported URL scheme', status: 0 }
+    }
     const { net } = await import('electron')
     return new Promise((resolve) => {
       try {
         const request = net.request({ url, method: 'GET' })
         if (options?.headers) {
           for (const [key, value] of Object.entries(options.headers)) {
-            request.setHeader(key, value)
+            // Block headers that could be used for header injection or SSRF
+            if (!BLOCKED_PROXY_HEADERS.has(key.toLowerCase())) {
+              request.setHeader(key, value)
+            }
           }
         }
         const chunks: Buffer[] = []

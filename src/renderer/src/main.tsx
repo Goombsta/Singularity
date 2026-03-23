@@ -174,6 +174,65 @@ if (!window.api) {
           return { data: bytesToBase64(bytes), status: res.status }
         },
       },
+
+      // Cast — uses the native CastPlugin for real network device discovery and casting.
+      // Discovers Chromecast (mDNS) and DLNA devices (SSDP) on the local network.
+      // Supports media controls (pause/resume/seek/volume) on Chromecast.
+      cast: {
+        startDiscovery: async () => {
+          try { await cap.Plugins.Cast.startDiscovery() } catch (e) {
+            console.warn('[Cast] startDiscovery failed:', e)
+          }
+        },
+        getDevices: async () => {
+          try {
+            const res = await cap.Plugins.Cast.getDevices()
+            return res?.devices ?? []
+          } catch (e) {
+            console.warn('[Cast] getDevices failed:', e)
+            return []
+          }
+        },
+        onDevicesUpdated: (cb: (devices: unknown[]) => void) => {
+          cap.Plugins.Cast.addListener('devicesUpdated', (data: any) => {
+            cb(data?.devices ?? [])
+          }).catch((e: any) => {
+            console.warn('[Cast] onDevicesUpdated listener failed:', e)
+          })
+        },
+        offDevicesUpdated: () => {
+          try { cap.Plugins.Cast.removeAllListeners?.() } catch { /* ignore */ }
+        },
+        start: async (deviceId: string, url: string, name?: string) => {
+          try {
+            await cap.Plugins.Cast.cast({ deviceId, url, name: name || 'IPTV Channel' })
+            return { success: true }
+          } catch (e: any) {
+            console.warn('[Cast] cast failed:', e)
+            return { success: false, error: e?.message ?? 'Cast failed' }
+          }
+        },
+        stop: async () => {
+          try { await cap.Plugins.Cast.stop() } catch { /* ignore */ }
+        },
+        refreshDiscovery: async () => {
+          try { await cap.Plugins.Cast.refreshDiscovery() } catch (e) {
+            console.warn('[Cast] refreshDiscovery failed:', e)
+          }
+        },
+        pauseCast: async () => {
+          try { await cap.Plugins.Cast.pauseCast() } catch { /* ignore */ }
+        },
+        resumeCast: async () => {
+          try { await cap.Plugins.Cast.resumeCast() } catch { /* ignore */ }
+        },
+        seekCast: async (time: number) => {
+          try { await cap.Plugins.Cast.seekCast({ time }) } catch { /* ignore */ }
+        },
+        setVolumeCast: async (level: number) => {
+          try { await cap.Plugins.Cast.setVolumeCast({ level }) } catch { /* ignore */ }
+        },
+      },
     }
   } else {
     // -------------------------------------------------------------------------
@@ -217,6 +276,19 @@ if (!window.api) {
           const buf = await res.arrayBuffer()
           return { data: bytesToBase64(new Uint8Array(buf)), status: res.status }
         },
+      },
+      cast: {
+        startDiscovery: noop,
+        getDevices: noopArr,
+        onDevicesUpdated: (_cb: unknown) => {},
+        offDevicesUpdated: noop,
+        start: noop,
+        stop: noop,
+        refreshDiscovery: noop,
+        pauseCast: noop,
+        resumeCast: noop,
+        seekCast: noop,
+        setVolumeCast: noop,
       },
     }
   }

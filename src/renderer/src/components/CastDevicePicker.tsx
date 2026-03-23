@@ -3,6 +3,7 @@ import type { CastDevice } from '../../../shared/castTypes'
 
 interface Props {
   devices: CastDevice[]
+  isScanning?: boolean
   isCasting: boolean
   castingDevice: CastDevice | null
   castError: string | null
@@ -13,6 +14,7 @@ interface Props {
 
 export default function CastDevicePicker({
   devices,
+  isScanning,
   isCasting,
   castingDevice,
   castError,
@@ -45,44 +47,51 @@ export default function CastDevicePicker({
 
         {/* Device list */}
         <div style={{ maxHeight: 220, overflowY: 'auto' }}>
-          {devices.length === 0 ? (
-            <div className="flex items-center gap-2 px-3 py-3" style={{ color: 'rgba(255,255,255,0.5)', fontSize: 12 }}>
-              <Spinner />
-              Scanning for devices…
+          {devices.length === 0 && !isScanning ? (
+            <div className="px-3 py-3" style={{ color: 'rgba(255,255,255,0.5)', fontSize: 12 }}>
+              No devices found
             </div>
           ) : (
-            devices.map((device) => {
-              const active = isCasting && castingDevice?.id === device.id
-              return (
-                <button
-                  key={device.id}
-                  className="w-full flex items-center gap-2 px-3 py-2 text-left transition-colors"
-                  style={{
-                    fontSize: 13,
-                    color: active ? 'var(--accent)' : 'rgba(255,255,255,0.85)',
-                    background: active ? 'rgba(91,127,166,0.15)' : 'transparent',
-                  }}
-                  onMouseEnter={(e) => {
-                    if (!active) (e.currentTarget as HTMLButtonElement).style.background = 'rgba(255,255,255,0.08)'
-                  }}
-                  onMouseLeave={(e) => {
-                    if (!active) (e.currentTarget as HTMLButtonElement).style.background = 'transparent'
-                  }}
-                  onClick={() => (active ? onStop() : onSelect(device.id))}
-                >
-                  <span style={{ flexShrink: 0, opacity: 0.7 }}>
-                    {device.type === 'chromecast' ? <ChromecastIcon /> : <TvIcon />}
-                  </span>
-                  <span className="flex-1 truncate">{device.name}</span>
-                  {active && (
-                    <span
-                      className="w-2 h-2 rounded-full flex-shrink-0"
-                      style={{ background: 'var(--accent)', boxShadow: '0 0 6px var(--accent)' }}
-                    />
-                  )}
-                </button>
-              )
-            })
+            <>
+              {devices.map((device) => {
+                const active = isCasting && castingDevice?.id === device.id
+                return (
+                  <button
+                    key={device.id}
+                    className="w-full flex items-center gap-2 px-3 py-2 text-left transition-colors"
+                    style={{
+                      fontSize: 13,
+                      color: active ? 'var(--accent)' : 'rgba(255,255,255,0.85)',
+                      background: active ? 'rgba(91,127,166,0.15)' : 'transparent',
+                    }}
+                    onMouseEnter={(e) => {
+                      if (!active) (e.currentTarget as HTMLButtonElement).style.background = 'rgba(255,255,255,0.08)'
+                    }}
+                    onMouseLeave={(e) => {
+                      if (!active) (e.currentTarget as HTMLButtonElement).style.background = 'transparent'
+                    }}
+                    onClick={() => (active ? onStop() : onSelect(device.id))}
+                  >
+                    <span style={{ flexShrink: 0, opacity: 0.7 }}>
+                      {device.type === 'chromecast' ? <ChromecastIcon /> : <TvIcon />}
+                    </span>
+                    <span className="flex-1 truncate">{device.name}</span>
+                    {active && (
+                      <span
+                        className="w-2 h-2 rounded-full flex-shrink-0"
+                        style={{ background: 'var(--accent)', boxShadow: '0 0 6px var(--accent)' }}
+                      />
+                    )}
+                  </button>
+                )
+              })}
+              {isScanning && (
+                <div className="flex items-center gap-2 px-3 py-3" style={{ color: 'rgba(255,255,255,0.5)', fontSize: 12 }}>
+                  <Spinner />
+                  Scanning for devices…
+                </div>
+              )}
+            </>
           )}
         </div>
 
