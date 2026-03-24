@@ -12,6 +12,9 @@ interface MiniPlayerProps {
   allChannels: Channel[]
 }
 
+/** How long (ms) a panel must be stalled before we reconnect. */
+const STALL_TIMEOUT_MS = 10_000
+
 function MiniPlayer({ panel, allChannels }: MiniPlayerProps): JSX.Element {
   // Must be inside component so window.api is already set by main.tsx
   const isAndroid = window.api?.platform === 'android'
@@ -19,6 +22,13 @@ function MiniPlayer({ panel, allChannels }: MiniPlayerProps): JSX.Element {
   const videoRef = useRef<HTMLVideoElement>(null)
   const hlsRef = useRef<Hls | null>(null)
   const mpegtsRef = useRef<mpegts.Player | null>(null)
+  const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // Refs so event listeners always see the latest values without re-registration
+  const channelRef = useRef(panel.channel)
+  const nextChannelRef = useRef<() => void>(() => {})
+
+  const [reconnecting, setReconnecting] = useState(false)
+
   const { setPrimaryPanel, togglePanelMute, setMultiviewChannel, setPanelVolume } = usePlayerStore()
 
   // Category → channel two-step selector
@@ -33,6 +43,11 @@ function MiniPlayer({ panel, allChannels }: MiniPlayerProps): JSX.Element {
   const loadChannel = useCallback(
     (ch: Channel) => {
       setMultiviewChannel(panel.id, ch)
+      // Cancel any pending reconnect when loading a new (or same) channel
+      if (reconnectTimerRef.current) {
+        clearTimeout(reconnectTimerRef.current)
+        reconnectTimerRef.current = null
+      }
       const video = videoRef.current
       if (!video) return
 
@@ -85,8 +100,27 @@ function MiniPlayer({ panel, allChannels }: MiniPlayerProps): JSX.Element {
         video.addEventListener('canplay', () => video.play().catch(() => {}), { once: true })
       }
     },
-    [panel.id, panel.isMuted, setMultiviewChannel]
+    [panel.id, panel.volume, setMultiviewChannel]
   )
+
+  // Keep refs in sync with latest values so event handlers never go stale
+  useEffect(() => { channelRef.current = panel.channel }, [panel.channel])
+
+  const prevChannel = useCallback(() => {
+    const pool = selCategory ? channelsInCat : allChannels
+    const idx = pool.findIndex((c) => c.id === panel.channel?.id)
+    const prev = idx > 0 ? idx - 1 : pool.length - 1
+    if (pool[prev]) loadChannel(pool[prev])
+  }, [selCategory, channelsInCat, allChannels, panel.channel, loadChannel])
+
+  const nextChannel = useCallback(() => {
+    const pool = selCategory ? channelsInCat : allChannels
+    const idx = pool.findIndex((c) => c.id === panel.channel?.id)
+    const next = idx < pool.length - 1 ? idx + 1 : 0
+    if (pool[next]) loadChannel(pool[next])
+  }, [selCategory, channelsInCat, allChannels, panel.channel, loadChannel])
+
+  useEffect(() => { nextChannelRef.current = nextChannel }, [nextChannel])
 
   // Sync mute state
   useEffect(() => {
@@ -98,27 +132,61 @@ function MiniPlayer({ panel, allChannels }: MiniPlayerProps): JSX.Element {
     if (videoRef.current) videoRef.current.volume = panel.volume
   }, [panel.volume])
 
+  // ── Auto-reconnect on stall / daisy-chain on stream end ──────────────────
+  useEffect(() => {
+    const video = videoRef.current
+    if (!video) return
+
+    const clearTimer = () => {
+      if (reconnectTimerRef.current) {
+        clearTimeout(reconnectTimerRef.current)
+        reconnectTimerRef.current = null
+      }
+    }
+
+    const scheduleReconnect = () => {
+      clearTimer()
+      if (!channelRef.current) return
+      reconnectTimerRef.current = setTimeout(() => {
+        const ch = channelRef.current
+        if (ch) {
+          setReconnecting(true)
+          loadChannel(ch)
+        }
+      }, STALL_TIMEOUT_MS)
+    }
+
+    const onWaiting = () => scheduleReconnect()
+    const onStalled = () => scheduleReconnect()
+    const onPlaying = () => { clearTimer(); setReconnecting(false) }
+    // Daisy-chain: stream ended → advance to next channel automatically
+    const onEnded = () => nextChannelRef.current()
+    const onError = () => scheduleReconnect()
+
+    video.addEventListener('waiting', onWaiting)
+    video.addEventListener('stalled', onStalled)
+    video.addEventListener('playing', onPlaying)
+    video.addEventListener('ended', onEnded)
+    video.addEventListener('error', onError)
+
+    return () => {
+      video.removeEventListener('waiting', onWaiting)
+      video.removeEventListener('stalled', onStalled)
+      video.removeEventListener('playing', onPlaying)
+      video.removeEventListener('ended', onEnded)
+      video.removeEventListener('error', onError)
+      clearTimer()
+    }
+  }, [loadChannel])
+
   // Cleanup on unmount
   useEffect(() => {
     return () => {
       if (hlsRef.current) hlsRef.current.destroy()
       if (mpegtsRef.current) mpegtsRef.current.destroy()
+      if (reconnectTimerRef.current) clearTimeout(reconnectTimerRef.current)
     }
   }, [])
-
-  const prevChannel = () => {
-    const pool = selCategory ? channelsInCat : allChannels
-    const idx = pool.findIndex((c) => c.id === panel.channel?.id)
-    const prev = idx > 0 ? idx - 1 : pool.length - 1
-    if (pool[prev]) loadChannel(pool[prev])
-  }
-
-  const nextChannel = () => {
-    const pool = selCategory ? channelsInCat : allChannels
-    const idx = pool.findIndex((c) => c.id === panel.channel?.id)
-    const next = idx < pool.length - 1 ? idx + 1 : 0
-    if (pool[next]) loadChannel(pool[next])
-  }
 
   // Pre-select category when panel already has a channel
   useEffect(() => {
@@ -153,6 +221,16 @@ function MiniPlayer({ panel, allChannels }: MiniPlayerProps): JSX.Element {
             <path d="M10 14l6-4v8l-6-4z" fill="rgba(255,255,255,0.3)" stroke="none"/>
           </svg>
           <p className="text-xs" style={{ color: 'rgba(255,255,255,0.4)' }}>Select a category, then a channel</p>
+        </div>
+      )}
+
+      {/* Reconnecting overlay */}
+      {reconnecting && (
+        <div className="absolute top-2 right-2 flex items-center gap-1.5 px-2 py-1 rounded-full pointer-events-none"
+          style={{ background: 'rgba(4,5,12,0.85)', border: '1px solid rgba(255,255,255,0.12)', zIndex: 20 }}>
+          <div className="animate-spin rounded-full"
+            style={{ width: 8, height: 8, border: '1.5px solid transparent', borderTopColor: 'var(--accent)' }} />
+          <span style={{ fontSize: 9, color: 'rgba(255,255,255,0.6)', letterSpacing: '0.04em' }}>Reconnecting…</span>
         </div>
       )}
 

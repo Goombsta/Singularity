@@ -24,7 +24,12 @@
 - Action buttons (reorder/rename) are now absolutely positioned and overlay the row on hover instead of consuming flex space
 - Category names are fully visible at all times; buttons fade in over the right edge on hover with a gradient backdrop
 
-#### 5 — Installer: silent fresh install, no upgrade prompt
+#### 5 — Multiview: auto-reconnect and daisy-chain streaming
+- Each panel monitors its stream for stalls (waiting / stalled / error events); after 10 seconds of no progress the stream is automatically reconnected — no manual intervention needed
+- When a stream ends, the panel automatically advances to the next channel in the category (daisy-chain), enabling continuous playback for single-connection playlists
+- A "Reconnecting…" badge with a spinner appears in the top-right corner of the panel while a reconnect is in progress
+
+#### 6 — Installer: silent fresh install, no upgrade prompt
 - Removed the Fresh / Upgrade / Cancel dialog — installer now always performs a clean install automatically
 - Running instance is silently killed before install; previous version is silently uninstalled; registry keys cleared to prevent the "Failed to uninstall old application files" double-uninstall error
 
