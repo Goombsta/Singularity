@@ -20,6 +20,10 @@
 #### 3 — Playlist Editor: drag-and-drop channel reorder
 - Channels within a category can be reordered via drag-and-drop in addition to the existing up/down arrow controls
 
+#### 4 — Playlist Editor: category names no longer cut off
+- Action buttons (reorder/rename) are now absolutely positioned and overlay the row on hover instead of consuming flex space
+- Category names are fully visible at all times; buttons fade in over the right edge on hover with a gradient backdrop
+
 ---
 
 ## v1.3.1

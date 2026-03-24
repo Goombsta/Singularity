@@ -421,9 +421,9 @@ export default function PlaylistEditor(): JSX.Element {
                     style={{ listStyle: 'none' }}
                     whileDrag={{ scale: 1.02, boxShadow: '0 4px 16px rgba(0,0,0,0.3)', zIndex: 50, borderRadius: 8 }}
                   >
-                    <div className="group flex items-center gap-0.5 my-0.5">
+                    <div className="group relative flex items-center my-0.5">
                       <button
-                        className={`nav-item flex-1 min-w-0 text-left ${isActive ? 'active' : ''}`}
+                        className={`nav-item w-full text-left ${isActive ? 'active' : ''}`}
                         style={{ paddingLeft: 10, fontSize: 12 }}
                         onClick={() => { if (!isEditingGroup) setActiveGroup(isActive ? null : g) }}
                       >
@@ -449,8 +449,11 @@ export default function PlaylistEditor(): JSX.Element {
                         )}
                       </button>
 
-                      {/* Category action buttons — inline, always visible on Android (reorder hidden since drag handles it) */}
-                      <div className="category-actions flex gap-0.5 flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
+                      {/* Category action buttons — absolutely positioned so they don't shrink the name */}
+                      <div
+                        className="category-actions absolute right-0 top-0 bottom-0 flex items-center gap-0.5 px-1 opacity-0 group-hover:opacity-100 transition-opacity"
+                        style={{ background: 'linear-gradient(to right, transparent, var(--bg-surface) 28%)' }}
+                      >
                         {/* Reorder buttons — hidden on Android (drag replaces these) */}
                         <div className="category-reorder-btns flex gap-0.5">
                           {/* Move to top */}
