@@ -16,7 +16,10 @@
       "Bash(CSC_IDENTITY_AUTO_DISCOVERY=false npx electron-builder --win)",
       "Bash(ls -lh \"C:/All Code/IPTV/dist/\"*.exe)",
       "Bash(npm run:*)",
-      "Bash(dir \"C:\\\\All Code\\\\IPTV\\\\dist\" /b)"
+      "Bash(dir \"C:\\\\All Code\\\\IPTV\\\\dist\" /b)",
+      "Bash(findstr /i \"mpegts\\\\|flv\\\\|hls\\\\|dependencies\")",
+      "Bash(node -e \"const mpegts = require\\(''C:/All Code/IPTV/node_modules/mpegts.js/dist/mpegts.js''\\); console.log\\(''isSupported:'', mpegts.isSupported\\(\\)\\); console.log\\(''Events:'', Object.keys\\(mpegts.Events || {}\\)\\); console.log\\(''default keys:'', Object.keys\\(mpegts\\)\\)\")",
+      "Bash(npm search:*)"
     ]
   }
 }

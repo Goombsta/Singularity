@@ -44,6 +44,8 @@ interface PlaylistStore {
   updateChannelLogo: (channelId: string, logo: string) => void
   exportPlaylist: (playlistId: string) => Promise<void>
   toggleFavorite: (channelId: string) => void
+  renameGroup: (oldName: string, newName: string) => void
+  reorderGroup: (groupName: string, direction: 'up' | 'down' | 'top') => void
 
   _save: () => Promise<void>
   _recompute: () => void
@@ -99,7 +101,12 @@ export const usePlaylistStore = create<PlaylistStore>((set, get) => ({
     }
 
     const groupMap = groupChannels(typeFiltered)
-    const groups = ['Favorites', ...Array.from(groupMap.keys())]
+    const rawGroups = Array.from(groupMap.keys())
+    const order = playlist?.groupOrder
+    const ordered = order
+      ? [...order.filter((g) => rawGroups.includes(g)), ...rawGroups.filter((g) => !order.includes(g))]
+      : rawGroups
+    const groups = ['Favorites', ...ordered]
 
     let active = typeFiltered
     if (activeGroup === 'Favorites') {
@@ -383,6 +390,50 @@ export const usePlaylistStore = create<PlaylistStore>((set, get) => ({
       ),
     }))
     set({ playlists })
+    get()._recompute()
+    get()._save()
+  },
+
+  renameGroup: (oldName, newName) => {
+    const trimmed = newName.trim()
+    if (!trimmed || oldName === 'Favorites') return
+    const playlists = get().playlists.map((p) => ({
+      ...p,
+      channels: p.channels.map((c) => (c.group === oldName ? { ...c, group: trimmed } : c)),
+      groupOrder: p.groupOrder?.map((g) => (g === oldName ? trimmed : g)),
+    }))
+    set({ playlists })
+    get()._recompute()
+    get()._save()
+  },
+
+  reorderGroup: (groupName, direction) => {
+    const { playlists, activePlaylistId } = get()
+    const plIdx = playlists.findIndex((p) => p.id === activePlaylistId)
+    if (plIdx < 0) return
+    const playlist = playlists[plIdx]
+    const rawGroups = Array.from(
+      new Set(playlist.channels.map((c) => c.group).filter((g) => g !== 'Favorites'))
+    )
+    const current = playlist.groupOrder
+      ? [
+          ...playlist.groupOrder.filter((g) => rawGroups.includes(g)),
+          ...rawGroups.filter((g) => !playlist.groupOrder!.includes(g)),
+        ]
+      : rawGroups
+    const idx = current.indexOf(groupName)
+    if (idx < 0) return
+    const next = [...current]
+    if (direction === 'top') {
+      next.splice(idx, 1)
+      next.unshift(groupName)
+    } else if (direction === 'up' && idx > 0) {
+      ;[next[idx - 1], next[idx]] = [next[idx], next[idx - 1]]
+    } else if (direction === 'down' && idx < next.length - 1) {
+      ;[next[idx], next[idx + 1]] = [next[idx + 1], next[idx]]
+    }
+    const updated = { ...playlist, groupOrder: next }
+    set({ playlists: playlists.map((p, i) => (i === plIdx ? updated : p)) })
     get()._recompute()
     get()._save()
   },

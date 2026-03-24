@@ -30,6 +30,7 @@ export interface Playlist {
   stalker?: StalkerCredentials
   channels: Channel[]
   groups: string[]
+  groupOrder?: string[]
   lastUpdated: number
   refreshInterval?: number // hours
 }

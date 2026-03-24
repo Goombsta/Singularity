@@ -192,6 +192,8 @@ export default function PlaylistEditor(): JSX.Element {
     setSearchQuery,
     searchQuery,
     reorderChannels,
+    renameGroup,
+    reorderGroup,
   } = usePlaylistStore()
 
   const playlist = playlists.find((p) => p.id === activePlaylistId)
@@ -200,6 +202,8 @@ export default function PlaylistEditor(): JSX.Element {
   const [bulkGroup, setBulkGroup] = useState('')
   const [showBulk, setShowBulk] = useState(false)
   const [groupSearch, setGroupSearch] = useState('')
+  const [groupEditing, setGroupEditing] = useState<string | null>(null)
+  const [groupEditValue, setGroupEditValue] = useState('')
 
   // Virtualized list sizing
   const containerRef = useRef<HTMLDivElement>(null)
@@ -350,25 +354,96 @@ export default function PlaylistEditor(): JSX.Element {
             </button>
             {groups
               .filter((g) => !groupSearch || g.toLowerCase().includes(groupSearch.toLowerCase()))
-              .map((g) => (
-                <button
-                  key={g}
-                  className={`nav-item w-full text-left ${activeGroup === g ? 'active' : ''}`}
-                  style={{ paddingLeft: 10, fontSize: 12 }}
-                  onClick={() => setActiveGroup(activeGroup === g ? null : g)}
-                >
-                  {g === 'Favorites' ? (
-                    <svg width="11" height="11" viewBox="0 0 11 11" fill={activeGroup === g ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="1.4">
-                      <path d="M5.5 1l1.2 2.5 2.8.4-2 2 .5 2.8L5.5 7.4l-2.5 1.3.5-2.8-2-2 2.8-.4L5.5 1z"/>
-                    </svg>
-                  ) : (
-                    <svg width="11" height="11" viewBox="0 0 11 11" fill="none" stroke="currentColor" strokeWidth="1.4">
-                      <path d="M1 2.5h9M1 5.5h6.5M1 8.5h7.5"/>
-                    </svg>
-                  )}
-                  <span className="truncate flex-1 text-left">{g}</span>
-                </button>
-              ))}
+              .map((g) => {
+                const isFav = g === 'Favorites'
+                const isActive = activeGroup === g
+                const isEditingGroup = groupEditing === g
+                return (
+                  <div key={g} className="group relative flex items-center my-0.5">
+                    <button
+                      className={`nav-item w-full text-left ${isActive ? 'active' : ''}`}
+                      style={{ paddingLeft: 10, fontSize: 12 }}
+                      onClick={() => { if (!isEditingGroup) setActiveGroup(isActive ? null : g) }}
+                    >
+                      {isFav ? (
+                        <svg width="11" height="11" viewBox="0 0 11 11" fill={isActive ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="1.4" className="flex-shrink-0">
+                          <path d="M5.5 1l1.2 2.5 2.8.4-2 2 .5 2.8L5.5 7.4l-2.5 1.3.5-2.8-2-2 2.8-.4L5.5 1z"/>
+                        </svg>
+                      ) : (
+                        <svg width="11" height="11" viewBox="0 0 11 11" fill="none" stroke="currentColor" strokeWidth="1.4" className="flex-shrink-0">
+                          <path d="M1 2.5h9M1 5.5h6.5M1 8.5h7.5"/>
+                        </svg>
+                      )}
+                      {isEditingGroup ? (
+                        <input
+                          className="input text-xs py-0 flex-1 min-w-0"
+                          style={{ height: 20, fontSize: 12 }}
+                          value={groupEditValue}
+                          autoFocus
+                          onChange={(e) => setGroupEditValue(e.target.value)}
+                          onBlur={() => { renameGroup(g, groupEditValue); setGroupEditing(null) }}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') { renameGroup(g, groupEditValue); setGroupEditing(null) }
+                            if (e.key === 'Escape') setGroupEditing(null)
+                          }}
+                          onClick={(e) => e.stopPropagation()}
+                        />
+                      ) : (
+                        <span className="truncate flex-1 text-left">{g}</span>
+                      )}
+                    </button>
+
+                    {!isFav && (
+                      <div className="absolute right-1 flex gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity" style={{ background: 'var(--bg-surface)' }}>
+                        {/* Move to top */}
+                        <button
+                          className="btn-neu btn w-5 h-5"
+                          style={{ padding: 0 }}
+                          onClick={() => reorderGroup(g, 'top')}
+                          title="Move to top"
+                        >
+                          <svg width="8" height="8" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.5">
+                            <line x1="1" y1="1" x2="9" y2="1"/><polyline points="3,9 5,3 7,9"/>
+                          </svg>
+                        </button>
+                        {/* Move up */}
+                        <button
+                          className="btn-neu btn w-5 h-5"
+                          style={{ padding: 0 }}
+                          onClick={() => reorderGroup(g, 'up')}
+                          title="Move up"
+                        >
+                          <svg width="8" height="8" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.5">
+                            <polyline points="2,6 5,3 8,6"/>
+                          </svg>
+                        </button>
+                        {/* Move down */}
+                        <button
+                          className="btn-neu btn w-5 h-5"
+                          style={{ padding: 0 }}
+                          onClick={() => reorderGroup(g, 'down')}
+                          title="Move down"
+                        >
+                          <svg width="8" height="8" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.5">
+                            <polyline points="2,4 5,7 8,4"/>
+                          </svg>
+                        </button>
+                        {/* Rename */}
+                        <button
+                          className="btn-neu btn w-5 h-5"
+                          style={{ padding: 0 }}
+                          onClick={() => { setGroupEditing(g); setGroupEditValue(g) }}
+                          title="Rename"
+                        >
+                          <svg width="8" height="8" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.5">
+                            <path d="M1 9l2-2L8 2l-1-1L2 7 1 9z"/><line x1="6" y1="2" x2="8" y2="4"/>
+                          </svg>
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
           </div>
         </div>
 
