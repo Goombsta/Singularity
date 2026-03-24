@@ -74,6 +74,10 @@ Cancel      $\t               $\t Exits the installer" \
     ${EndIf}
     ExecWait '"$R0" /S'
     Sleep 1500
+    ; Remove registry keys so electron-builder's own uninstall pass finds nothing
+    ; and does not throw "Failed to uninstall old application files"
+    DeleteRegKey HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\d1ffad25-24c4-54a9-988a-aba120a273b4"
+    DeleteRegKey HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\d1ffad25-24c4-54a9-988a-aba120a273b4"
     Return
 
     ; ── NO / Upgrade: upgrade in place — do nothing, let installer overwrite ──
