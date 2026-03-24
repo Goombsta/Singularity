@@ -23,6 +23,11 @@
 !macro customInit
   !ifndef BUILD_UNINSTALLER
 
+    ; ── Kill any running Singularity instance ─────────────────────────────────
+    ; Silently terminate so the installer never shows "cannot be closed" dialog
+    nsExec::ExecToLog 'taskkill /F /IM "Singularity.exe" /T'
+    Sleep 800
+
     ; ── Detect existing installation ─────────────────────────────────────────
     ; Try HKCU first (per-user install), fall back to HKLM (per-machine)
     ReadRegStr $R0 HKCU \
