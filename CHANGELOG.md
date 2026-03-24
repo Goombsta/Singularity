@@ -26,7 +26,7 @@
 
 #### 5 — Multiview: auto-reconnect and daisy-chain streaming
 - Each panel monitors its stream for stalls (waiting / stalled / error events); after 10 seconds of no progress the stream is automatically reconnected — no manual intervention needed
-- When a stream ends, the panel automatically advances to the next channel in the category (daisy-chain), enabling continuous playback for single-connection playlists
+- When a stream ends, the panel automatically attempts to reconnect to the same channel
 - A "Reconnecting…" badge with a spinner appears in the top-right corner of the panel while a reconnect is in progress
 
 #### 6 — Installer: silent fresh install, no upgrade prompt

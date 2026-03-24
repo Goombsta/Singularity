@@ -132,7 +132,7 @@ function MiniPlayer({ panel, allChannels }: MiniPlayerProps): JSX.Element {
     if (videoRef.current) videoRef.current.volume = panel.volume
   }, [panel.volume])
 
-  // ── Auto-reconnect on stall / daisy-chain on stream end ──────────────────
+  // ── Auto-reconnect on stall, error, or stream end ────────────────────────
   useEffect(() => {
     const video = videoRef.current
     if (!video) return
@@ -159,8 +159,7 @@ function MiniPlayer({ panel, allChannels }: MiniPlayerProps): JSX.Element {
     const onWaiting = () => scheduleReconnect()
     const onStalled = () => scheduleReconnect()
     const onPlaying = () => { clearTimer(); setReconnecting(false) }
-    // Daisy-chain: stream ended → advance to next channel automatically
-    const onEnded = () => nextChannelRef.current()
+    const onEnded = () => scheduleReconnect()
     const onError = () => scheduleReconnect()
 
     video.addEventListener('waiting', onWaiting)
