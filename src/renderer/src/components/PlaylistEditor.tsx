@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
-import { motion, AnimatePresence } from 'framer-motion'
+import { motion, AnimatePresence, Reorder } from 'framer-motion'
 import { FixedSizeList as List } from 'react-window'
 import { usePlaylistStore } from '../stores/playlistStore'
 import type { Channel } from '../types'
@@ -19,18 +19,21 @@ interface RowData {
   onCommitEdit: () => void
   onReorder: (id: string, dir: 'up' | 'down' | 'top') => void
   onDelete: (id: string) => void
+  isDragMode: boolean
 }
 
 function ChannelEditorRow({
   index,
   style,
   data,
+  channel,
 }: {
-  index: number
-  style: React.CSSProperties
+  index?: number
+  style?: React.CSSProperties
   data: RowData
+  channel?: Channel
 }): JSX.Element {
-  const ch = data.channels[index]
+  const ch = channel ?? data.channels[index!]
   const isSelected = data.selected.has(ch.id)
   const isEditing = data.editing?.channelId === ch.id && data.editing.field === 'name'
 
@@ -42,7 +45,7 @@ function ChannelEditorRow({
           height: 48,
           background: isSelected ? 'rgba(91,127,166,0.08)' : 'transparent',
           border: isSelected ? '1px solid rgba(91,127,166,0.2)' : '1px solid transparent',
-          cursor: 'default',
+          cursor: data.isDragMode ? 'grab' : 'default',
         }}
       >
         {/* Checkbox */}
@@ -63,7 +66,7 @@ function ChannelEditorRow({
 
         {/* Number */}
         <span className="text-xs w-7 text-right flex-shrink-0" style={{ color: 'var(--text-secondary)' }}>
-          {ch.number || index + 1}
+          {ch.number || (index !== undefined ? index + 1 : '')}
         </span>
 
         {/* Logo */}
@@ -106,11 +109,11 @@ function ChannelEditorRow({
           <p className="text-xs truncate" style={{ color: 'var(--text-secondary)', fontSize: 10 }}>{ch.group}</p>
         </div>
 
-        {/* Actions — visible on hover */}
-        <div className="flex gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0">
+        {/* Actions — visible on hover (always visible on Android via CSS) */}
+        <div className="channel-actions flex gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0">
           {/* Move to top */}
           <button
-            className="btn-neu btn w-6 h-6"
+            className="btn-neu btn control-btn w-6 h-6"
             style={{ padding: 0 }}
             onClick={() => data.onReorder(ch.id, 'top')}
             title="Move to top"
@@ -123,7 +126,7 @@ function ChannelEditorRow({
 
           {/* Move up */}
           <button
-            className="btn-neu btn w-6 h-6"
+            className="btn-neu btn control-btn w-6 h-6"
             style={{ padding: 0 }}
             onClick={() => data.onReorder(ch.id, 'up')}
             title="Move up"
@@ -135,7 +138,7 @@ function ChannelEditorRow({
 
           {/* Move down */}
           <button
-            className="btn-neu btn w-6 h-6"
+            className="btn-neu btn control-btn w-6 h-6"
             style={{ padding: 0 }}
             onClick={() => data.onReorder(ch.id, 'down')}
             title="Move down"
@@ -147,7 +150,7 @@ function ChannelEditorRow({
 
           {/* Rename */}
           <button
-            className="btn-neu btn w-6 h-6"
+            className="btn-neu btn control-btn w-6 h-6"
             style={{ padding: 0 }}
             onClick={() => data.onSetEditing({ channelId: ch.id, field: 'name', value: ch.name })}
             title="Rename"
@@ -160,7 +163,7 @@ function ChannelEditorRow({
 
           {/* Delete */}
           <button
-            className="btn w-6 h-6 rounded-md"
+            className="btn control-btn w-6 h-6 rounded-md"
             style={{ background: 'rgba(224,82,82,0.08)', color: 'var(--danger)', padding: 0 }}
             onClick={() => data.onDelete(ch.id)}
             title="Delete"
@@ -174,6 +177,19 @@ function ChannelEditorRow({
       </div>
     </div>
   )
+}
+
+// react-window item renderer wrapper
+function VirtualChannelRow({
+  index,
+  style,
+  data,
+}: {
+  index: number
+  style: React.CSSProperties
+  data: RowData
+}): JSX.Element {
+  return <ChannelEditorRow index={index} style={style} data={data} />
 }
 
 export default function PlaylistEditor(): JSX.Element {
@@ -194,6 +210,8 @@ export default function PlaylistEditor(): JSX.Element {
     reorderChannels,
     renameGroup,
     reorderGroup,
+    setGroupOrder,
+    setGroupChannelOrder,
   } = usePlaylistStore()
 
   const playlist = playlists.find((p) => p.id === activePlaylistId)
@@ -249,6 +267,13 @@ export default function PlaylistEditor(): JSX.Element {
     setEditing(null)
   }, [editing, renameChannel, updateChannelLogo, moveChannel])
 
+  // Drag mode: enabled when viewing a specific group with ≤ 300 channels (not "All" or virtualized)
+  const useDragList =
+    activeGroup !== null &&
+    activeGroup !== 'Favorites' &&
+    filteredChannels.length <= 300 &&
+    !searchQuery
+
   const itemData: RowData = {
     channels: filteredChannels,
     selected,
@@ -258,7 +283,16 @@ export default function PlaylistEditor(): JSX.Element {
     onCommitEdit: commitEdit,
     onReorder: reorderChannels,
     onDelete: deleteChannel,
+    isDragMode: useDragList,
   }
+
+  // Draggable groups: all except Favorites (always pinned first)
+  const draggableGroups = groups.filter((g) => g !== 'Favorites')
+  const filteredDraggable = draggableGroups.filter(
+    (g) => !groupSearch || g.toLowerCase().includes(groupSearch.toLowerCase())
+  )
+  const showFavorites = groups.includes('Favorites') &&
+    (!groupSearch || 'favorites'.includes(groupSearch.toLowerCase()))
 
   return (
     <div className="flex flex-col h-full">
@@ -313,7 +347,7 @@ export default function PlaylistEditor(): JSX.Element {
         {/* Left: category column */}
         <div
           className="flex flex-col flex-shrink-0 overflow-hidden"
-          style={{ width: 220, borderRight: '1px solid var(--border-hard)', background: 'var(--bg-surface)' }}
+          style={{ width: 260, borderRight: '1px solid var(--border-hard)', background: 'var(--bg-surface)' }}
         >
           {/* Group search */}
           <div className="px-2 pt-2 pb-1 flex-shrink-0">
@@ -342,6 +376,7 @@ export default function PlaylistEditor(): JSX.Element {
 
           {/* Group list */}
           <div className="flex-1 overflow-y-auto px-2 pb-2">
+            {/* "All" — always pinned, not draggable */}
             <button
               className={`nav-item w-full text-left ${!activeGroup ? 'active' : ''}`}
               style={{ paddingLeft: 10, fontSize: 12 }}
@@ -352,85 +387,109 @@ export default function PlaylistEditor(): JSX.Element {
               </svg>
               <span className="flex-1 text-left">All</span>
             </button>
-            {groups
-              .filter((g) => !groupSearch || g.toLowerCase().includes(groupSearch.toLowerCase()))
-              .map((g) => {
-                const isFav = g === 'Favorites'
+
+            {/* Favorites — pinned, not draggable */}
+            {showFavorites && (
+              <div className="group flex items-center gap-0.5 my-0.5">
+                <button
+                  className={`nav-item flex-1 min-w-0 text-left ${activeGroup === 'Favorites' ? 'active' : ''}`}
+                  style={{ paddingLeft: 10, fontSize: 12 }}
+                  onClick={() => setActiveGroup(activeGroup === 'Favorites' ? null : 'Favorites')}
+                >
+                  <svg width="11" height="11" viewBox="0 0 11 11" fill={activeGroup === 'Favorites' ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="1.4" className="flex-shrink-0">
+                    <path d="M5.5 1l1.2 2.5 2.8.4-2 2 .5 2.8L5.5 7.4l-2.5 1.3.5-2.8-2-2 2.8-.4L5.5 1z"/>
+                  </svg>
+                  <span className="truncate flex-1 text-left">Favorites</span>
+                </button>
+              </div>
+            )}
+
+            {/* Draggable groups */}
+            <Reorder.Group
+              axis="y"
+              values={filteredDraggable}
+              onReorder={(newOrder) => setGroupOrder(newOrder)}
+              style={{ listStyle: 'none', padding: 0, margin: 0 }}
+            >
+              {filteredDraggable.map((g) => {
                 const isActive = activeGroup === g
                 const isEditingGroup = groupEditing === g
                 return (
-                  <div key={g} className="group relative flex items-center my-0.5">
-                    <button
-                      className={`nav-item w-full text-left ${isActive ? 'active' : ''}`}
-                      style={{ paddingLeft: 10, fontSize: 12 }}
-                      onClick={() => { if (!isEditingGroup) setActiveGroup(isActive ? null : g) }}
-                    >
-                      {isFav ? (
-                        <svg width="11" height="11" viewBox="0 0 11 11" fill={isActive ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="1.4" className="flex-shrink-0">
-                          <path d="M5.5 1l1.2 2.5 2.8.4-2 2 .5 2.8L5.5 7.4l-2.5 1.3.5-2.8-2-2 2.8-.4L5.5 1z"/>
-                        </svg>
-                      ) : (
+                  <Reorder.Item
+                    key={g}
+                    value={g}
+                    style={{ listStyle: 'none' }}
+                    whileDrag={{ scale: 1.02, boxShadow: '0 4px 16px rgba(0,0,0,0.3)', zIndex: 50, borderRadius: 8 }}
+                  >
+                    <div className="group flex items-center gap-0.5 my-0.5">
+                      <button
+                        className={`nav-item flex-1 min-w-0 text-left ${isActive ? 'active' : ''}`}
+                        style={{ paddingLeft: 10, fontSize: 12 }}
+                        onClick={() => { if (!isEditingGroup) setActiveGroup(isActive ? null : g) }}
+                      >
                         <svg width="11" height="11" viewBox="0 0 11 11" fill="none" stroke="currentColor" strokeWidth="1.4" className="flex-shrink-0">
                           <path d="M1 2.5h9M1 5.5h6.5M1 8.5h7.5"/>
                         </svg>
-                      )}
-                      {isEditingGroup ? (
-                        <input
-                          className="input text-xs py-0 flex-1 min-w-0"
-                          style={{ height: 20, fontSize: 12 }}
-                          value={groupEditValue}
-                          autoFocus
-                          onChange={(e) => setGroupEditValue(e.target.value)}
-                          onBlur={() => { renameGroup(g, groupEditValue); setGroupEditing(null) }}
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter') { renameGroup(g, groupEditValue); setGroupEditing(null) }
-                            if (e.key === 'Escape') setGroupEditing(null)
-                          }}
-                          onClick={(e) => e.stopPropagation()}
-                        />
-                      ) : (
-                        <span className="truncate flex-1 text-left">{g}</span>
-                      )}
-                    </button>
+                        {isEditingGroup ? (
+                          <input
+                            className="input text-xs py-0 flex-1 min-w-0"
+                            style={{ height: 20, fontSize: 12 }}
+                            value={groupEditValue}
+                            autoFocus
+                            onChange={(e) => setGroupEditValue(e.target.value)}
+                            onBlur={() => { renameGroup(g, groupEditValue); setGroupEditing(null) }}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') { renameGroup(g, groupEditValue); setGroupEditing(null) }
+                              if (e.key === 'Escape') setGroupEditing(null)
+                            }}
+                            onClick={(e) => e.stopPropagation()}
+                          />
+                        ) : (
+                          <span className="truncate flex-1 text-left">{g}</span>
+                        )}
+                      </button>
 
-                    {!isFav && (
-                      <div className="absolute right-1 flex gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity" style={{ background: 'var(--bg-surface)' }}>
-                        {/* Move to top */}
-                        <button
-                          className="btn-neu btn w-5 h-5"
-                          style={{ padding: 0 }}
-                          onClick={() => reorderGroup(g, 'top')}
-                          title="Move to top"
-                        >
-                          <svg width="8" height="8" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.5">
-                            <line x1="1" y1="1" x2="9" y2="1"/><polyline points="3,9 5,3 7,9"/>
-                          </svg>
-                        </button>
-                        {/* Move up */}
-                        <button
-                          className="btn-neu btn w-5 h-5"
-                          style={{ padding: 0 }}
-                          onClick={() => reorderGroup(g, 'up')}
-                          title="Move up"
-                        >
-                          <svg width="8" height="8" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.5">
-                            <polyline points="2,6 5,3 8,6"/>
-                          </svg>
-                        </button>
-                        {/* Move down */}
-                        <button
-                          className="btn-neu btn w-5 h-5"
-                          style={{ padding: 0 }}
-                          onClick={() => reorderGroup(g, 'down')}
-                          title="Move down"
-                        >
-                          <svg width="8" height="8" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.5">
-                            <polyline points="2,4 5,7 8,4"/>
-                          </svg>
-                        </button>
+                      {/* Category action buttons — inline, always visible on Android (reorder hidden since drag handles it) */}
+                      <div className="category-actions flex gap-0.5 flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
+                        {/* Reorder buttons — hidden on Android (drag replaces these) */}
+                        <div className="category-reorder-btns flex gap-0.5">
+                          {/* Move to top */}
+                          <button
+                            className="btn-neu btn control-btn w-5 h-5"
+                            style={{ padding: 0 }}
+                            onClick={() => reorderGroup(g, 'top')}
+                            title="Move to top"
+                          >
+                            <svg width="8" height="8" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.5">
+                              <line x1="1" y1="1" x2="9" y2="1"/><polyline points="3,9 5,3 7,9"/>
+                            </svg>
+                          </button>
+                          {/* Move up */}
+                          <button
+                            className="btn-neu btn control-btn w-5 h-5"
+                            style={{ padding: 0 }}
+                            onClick={() => reorderGroup(g, 'up')}
+                            title="Move up"
+                          >
+                            <svg width="8" height="8" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.5">
+                              <polyline points="2,6 5,3 8,6"/>
+                            </svg>
+                          </button>
+                          {/* Move down */}
+                          <button
+                            className="btn-neu btn control-btn w-5 h-5"
+                            style={{ padding: 0 }}
+                            onClick={() => reorderGroup(g, 'down')}
+                            title="Move down"
+                          >
+                            <svg width="8" height="8" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.5">
+                              <polyline points="2,4 5,7 8,4"/>
+                            </svg>
+                          </button>
+                        </div>
                         {/* Rename */}
                         <button
-                          className="btn-neu btn w-5 h-5"
+                          className="btn-neu btn control-btn w-5 h-5"
                           style={{ padding: 0 }}
                           onClick={() => { setGroupEditing(g); setGroupEditValue(g) }}
                           title="Rename"
@@ -439,11 +498,12 @@ export default function PlaylistEditor(): JSX.Element {
                             <path d="M1 9l2-2L8 2l-1-1L2 7 1 9z"/><line x1="6" y1="2" x2="8" y2="4"/>
                           </svg>
                         </button>
-                      </div>
-                    )}
-                  </div>
+                      </div>{/* end category-actions */}
+                    </div>
+                  </Reorder.Item>
                 )
               })}
+            </Reorder.Group>
           </div>
         </div>
 
@@ -459,25 +519,56 @@ export default function PlaylistEditor(): JSX.Element {
             />
           </div>
 
-          {/* Count */}
-          <div className="px-4 pb-1 flex-shrink-0">
+          {/* Count + drag hint */}
+          <div className="px-4 pb-1 flex-shrink-0 flex items-center gap-2">
             <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>
               {filteredChannels.length.toLocaleString()} channels
             </p>
+            {useDragList && (
+              <p className="text-xs" style={{ color: 'var(--text-secondary)', opacity: 0.6 }}>
+                · drag to reorder
+              </p>
+            )}
           </div>
 
-          {/* Virtualized channel list */}
+          {/* Channel list — drag mode (Reorder) or virtualized (react-window) */}
           <div ref={containerRef} className="flex-1 overflow-hidden">
-            <List
-              ref={listRef}
-              height={listHeight}
-              itemCount={filteredChannels.length}
-              itemSize={52}
-              width="100%"
-              itemData={itemData}
-            >
-              {ChannelEditorRow}
-            </List>
+            {useDragList ? (
+              <Reorder.Group
+                axis="y"
+                values={filteredChannels}
+                onReorder={(newChans) =>
+                  setGroupChannelOrder(activeGroup!, newChans.map((c) => c.id))
+                }
+                className="overflow-y-auto h-full"
+                style={{ listStyle: 'none', padding: 0, margin: 0, height: '100%' }}
+              >
+                {filteredChannels.map((ch) => (
+                  <Reorder.Item
+                    key={ch.id}
+                    value={ch}
+                    style={{ listStyle: 'none' }}
+                    whileDrag={{ scale: 1.01, boxShadow: '0 4px 16px rgba(0,0,0,0.25)', zIndex: 50 }}
+                  >
+                    <ChannelEditorRow
+                      channel={ch}
+                      data={itemData}
+                    />
+                  </Reorder.Item>
+                ))}
+              </Reorder.Group>
+            ) : (
+              <List
+                ref={listRef}
+                height={listHeight}
+                itemCount={filteredChannels.length}
+                itemSize={52}
+                width="100%"
+                itemData={itemData}
+              >
+                {VirtualChannelRow}
+              </List>
+            )}
           </div>
         </div>
       </div>

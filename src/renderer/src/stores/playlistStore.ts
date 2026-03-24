@@ -46,6 +46,8 @@ interface PlaylistStore {
   toggleFavorite: (channelId: string) => void
   renameGroup: (oldName: string, newName: string) => void
   reorderGroup: (groupName: string, direction: 'up' | 'down' | 'top') => void
+  setGroupOrder: (newGroups: string[]) => void
+  setGroupChannelOrder: (group: string, orderedIds: string[]) => void
 
   _save: () => Promise<void>
   _recompute: () => void
@@ -403,6 +405,35 @@ export const usePlaylistStore = create<PlaylistStore>((set, get) => ({
       groupOrder: p.groupOrder?.map((g) => (g === oldName ? trimmed : g)),
     }))
     set({ playlists })
+    get()._recompute()
+    get()._save()
+  },
+
+  setGroupOrder: (newGroups) => {
+    const { playlists, activePlaylistId } = get()
+    const updated = playlists.map((p) =>
+      p.id === activePlaylistId ? { ...p, groupOrder: newGroups } : p
+    )
+    set({ playlists: updated })
+    get()._recompute()
+    get()._save()
+  },
+
+  setGroupChannelOrder: (group, orderedIds) => {
+    const { playlists, activePlaylistId } = get()
+    const playlist = playlists.find((p) => p.id === activePlaylistId)
+    if (!playlist) return
+    const others = playlist.channels.filter((c) => c.group !== group)
+    const idSet = new Set(orderedIds)
+    const groupChans = orderedIds
+      .map((id) => playlist.channels.find((c) => c.id === id)!)
+      .filter(Boolean)
+    const missing = playlist.channels.filter((c) => c.group === group && !idSet.has(c.id))
+    const newChannels = [...others, ...groupChans, ...missing]
+    const updated = playlists.map((p) =>
+      p.id === activePlaylistId ? { ...p, channels: newChannels } : p
+    )
+    set({ playlists: updated })
     get()._recompute()
     get()._save()
   },

@@ -363,6 +363,22 @@ body,
   min-width: unset;
 }
 
+/* Always show category action buttons on Android (no hover on touch devices) */
+.android-mode .category-actions {
+  opacity: 1 !important;
+}
+
+/* Hide top/up/down reorder buttons on Android — drag-to-reorder handles this */
+.android-mode .category-reorder-btns {
+  display: none;
+}
+
+/* Prevent 44px touch-target inflation on small category action buttons */
+.android-mode .category-actions button {
+  min-height: unset;
+  min-width: unset;
+}
+
 /* FireStick / D-pad: visible focus ring for keyboard navigation */
 .android-mode *:focus-visible {
   outline: 2px solid var(--accent);
