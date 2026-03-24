@@ -4,6 +4,24 @@
 
 ---
 
+## v1.3.2
+
+### Features & Improvements
+
+#### 1 — Playlist Editor: category rename
+- Inline rename for Live TV categories directly in the Playlist Editor groups panel
+- Click the pencil icon on any group row to enter edit mode; press **Enter** to save or **Escape** to cancel
+- Renaming a category updates all channels assigned to that group in the active playlist
+
+#### 2 — Playlist Editor: category reorder
+- Categories can now be moved up, down, or to the top using the arrow/top buttons that appear on hover — matching the existing channel reorder controls
+- Drag-and-drop reorder also supported: grab the handle (⠿) on any group row and drop it into position
+
+#### 3 — Playlist Editor: drag-and-drop channel reorder
+- Channels within a category can be reordered via drag-and-drop in addition to the existing up/down arrow controls
+
+---
+
 ## v1.3.1
 
 ### Features & Improvements
