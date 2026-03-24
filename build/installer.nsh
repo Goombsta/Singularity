@@ -1,18 +1,15 @@
 ; Singularity — custom NSIS installer logic
-; Detects an existing installation and prompts the user to choose:
-;   Fresh   → Fresh install  (old version removed silently first)
-;   Upgrade → Upgrade in place  (files overwritten, data kept)
-;   Cancel  → Abort the installer
+; Always performs a fresh install:
+;   1. Silently kills any running Singularity instance
+;   2. Silently uninstalls any existing version
+;   3. Clears registry keys so electron-builder does not double-uninstall
 ;
-; Uses only built-in NSIS MessageBox — no extra plugins needed.
 ; All code guarded with !ifndef BUILD_UNINSTALLER to prevent NSIS
 ; warning-as-error failures during the uninstaller build pass.
 
 !include "LogicLib.nsh"
 
 ; ── customHeader / customInstallMode — empty stubs ───────────────────────────
-; electron-builder calls these macros; provide empty implementations so the
-; template compiles cleanly without any Var declarations or plugin calls.
 !macro customHeader
 !macroend
 
@@ -24,12 +21,10 @@
   !ifndef BUILD_UNINSTALLER
 
     ; ── Kill any running Singularity instance ─────────────────────────────────
-    ; Silently terminate so the installer never shows "cannot be closed" dialog
     nsExec::ExecToLog 'taskkill /F /IM "Singularity.exe" /T'
     Sleep 800
 
     ; ── Detect existing installation ─────────────────────────────────────────
-    ; Try HKCU first (per-user install), fall back to HKLM (per-machine)
     ReadRegStr $R0 HKCU \
       "Software\Microsoft\Windows\CurrentVersion\Uninstall\d1ffad25-24c4-54a9-988a-aba120a273b4" \
       "UninstallString"
@@ -39,31 +34,12 @@
         "UninstallString"
     ${EndIf}
 
-    ; Nothing found — first-time install, skip dialog
+    ; No existing install — proceed directly
     ${If} $R0 == ""
       Return
     ${EndIf}
 
-    ; Read the installed version number for the prompt
-    ReadRegStr $R1 HKCU \
-      "Software\Microsoft\Windows\CurrentVersion\Uninstall\d1ffad25-24c4-54a9-988a-aba120a273b4" \
-      "DisplayVersion"
-    ${If} $R1 == ""
-      ReadRegStr $R1 HKLM \
-        "Software\Microsoft\Windows\CurrentVersion\Uninstall\d1ffad25-24c4-54a9-988a-aba120a273b4" \
-        "DisplayVersion"
-    ${EndIf}
-
-    ; ── Ask user: Fresh Install / Upgrade / Cancel ────────────────────────────
-    MessageBox MB_YESNOCANCEL|MB_ICONQUESTION|MB_DEFBUTTON1 \
-      "Singularity $R1 is already installed.$\n$\n\
-Choose Yes  $\t Fresh Install $\t Removes old version first (recommended)$\n\
-Choose No   $\t Upgrade       $\t Keeps your playlists and settings$\n\
-Cancel      $\t               $\t Exits the installer" \
-      IDNO sg_upgrade IDCANCEL sg_cancel
-
-    ; ── YES / Fresh Install: uninstall old version silently first ─────────────
-    ; Strip surrounding quotes from UninstallString, if present
+    ; ── Strip surrounding quotes from UninstallString ─────────────────────────
     StrCpy $R2 $R0 1
     ${If} $R2 == '"'
       StrCpy $R0 $R0 "" 1
@@ -72,21 +48,14 @@ Cancel      $\t               $\t Exits the installer" \
         StrCpy $R0 $R0 -1
       ${EndIf}
     ${EndIf}
+
+    ; ── Silently uninstall old version ────────────────────────────────────────
     ExecWait '"$R0" /S'
     Sleep 1500
-    ; Remove registry keys so electron-builder's own uninstall pass finds nothing
-    ; and does not throw "Failed to uninstall old application files"
+
+    ; ── Remove registry keys so electron-builder does not double-uninstall ────
     DeleteRegKey HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\d1ffad25-24c4-54a9-988a-aba120a273b4"
     DeleteRegKey HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\d1ffad25-24c4-54a9-988a-aba120a273b4"
-    Return
-
-    ; ── NO / Upgrade: upgrade in place — do nothing, let installer overwrite ──
-    sg_upgrade:
-    Return
-
-    ; ── CANCEL: abort installer ───────────────────────────────────────────────
-    sg_cancel:
-    Quit
 
   !endif ; BUILD_UNINSTALLER
 !macroend
