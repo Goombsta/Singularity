@@ -8,9 +8,10 @@ interface MiniPlayerProps {
   volume?: number
   className?: string
   style?: React.CSSProperties
+  fullscreenOnDoubleClick?: boolean
 }
 
-export default function MiniPlayer({ url, muted = true, volume = 1, className = '', style }: MiniPlayerProps): JSX.Element {
+export default function MiniPlayer({ url, muted = true, volume = 1, className = '', style, fullscreenOnDoubleClick }: MiniPlayerProps): JSX.Element {
   const videoRef = useRef<HTMLVideoElement>(null)
   const hlsRef = useRef<Hls | null>(null)
   const mpegtsRef = useRef<mpegts.Player | null>(null)
@@ -137,8 +138,26 @@ export default function MiniPlayer({ url, muted = true, volume = 1, className = 
     }
   }, [url])
 
+  const containerRef = useRef<HTMLDivElement>(null)
+
+  const handleDoubleClick = () => {
+    if (!fullscreenOnDoubleClick) return
+    const el = containerRef.current
+    if (!el) return
+    if (!document.fullscreenElement) {
+      el.requestFullscreen?.()
+    } else {
+      document.exitFullscreen?.()
+    }
+  }
+
   return (
-    <div className={`relative overflow-hidden bg-black ${className}`} style={style}>
+    <div
+      ref={containerRef}
+      className={`relative overflow-hidden bg-black ${className}`}
+      style={style}
+      onDoubleClick={handleDoubleClick}
+    >
       <video
         ref={videoRef}
         className="w-full h-full"

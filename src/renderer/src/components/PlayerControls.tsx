@@ -1,4 +1,4 @@
-import { useRef, useState, useEffect } from 'react'
+import { useRef, useState, useEffect, useCallback } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { usePlayerStore } from '../stores/playerStore'
 import { useSettingsStore } from '../stores/settingsStore'
@@ -42,7 +42,35 @@ export default function PlayerControls({ visible, videoRef }: Props): JSX.Elemen
 
   const { settings } = useSettingsStore()
   const isAndroid = window.api?.platform === 'android'
+  const isTV = isAndroid && !!(window as unknown as { __IS_TV__?: boolean }).__IS_TV__
   const volumeRef = useRef<HTMLInputElement>(null)
+  const controlsRowRef = useRef<HTMLDivElement>(null)
+
+  // D-pad navigation between control buttons.
+  // When a range input (volume/seek slider) is focused, ArrowLeft/Right adjusts the
+  // slider value natively — we must NOT intercept them for focus movement.
+  const handleControlsKeyDown = useCallback((e: React.KeyboardEvent) => {
+    if (!controlsRowRef.current) return
+    const activeEl = document.activeElement as HTMLElement
+    const isRangeInput = activeEl instanceof HTMLInputElement && activeEl.type === 'range'
+
+    const btns = Array.from(
+      controlsRowRef.current.querySelectorAll<HTMLElement>('button, input[type="range"]')
+    )
+    const idx = btns.indexOf(activeEl)
+
+    if (e.key === 'ArrowRight' && !isRangeInput && idx >= 0 && idx < btns.length - 1) {
+      e.preventDefault()
+      btns[idx + 1].focus()
+    } else if (e.key === 'ArrowLeft' && !isRangeInput && idx > 0) {
+      e.preventDefault()
+      btns[idx - 1].focus()
+    } else if (e.key === 'ArrowUp' && isTV) {
+      // On TV: move focus up to the player area
+      e.preventDefault()
+      document.querySelector<HTMLElement>('[data-tv-player]')?.focus()
+    }
+  }, [isTV])
 
   const handleSeek = (e: React.ChangeEvent<HTMLInputElement>) => {
     const t = parseFloat(e.target.value)
@@ -126,10 +154,11 @@ export default function PlayerControls({ visible, videoRef }: Props): JSX.Elemen
                 className="absolute top-4 right-4 glass rounded-xl p-3"
                 style={{ fontSize: 11, color: 'rgba(255,255,255,0.85)' }}
               >
-                {streamInfo.resolution && <p>Resolution: {streamInfo.resolution}</p>}
+                {(streamInfo.resolution || streamInfo.fps) && (
+                  <p>Quality: {[streamInfo.resolution, streamInfo.fps].filter(Boolean).join(' · ')}</p>
+                )}
                 {streamInfo.codec && <p>Codec: {streamInfo.codec}</p>}
                 {streamInfo.bitrate && <p>Bitrate: {streamInfo.bitrate}</p>}
-                {streamInfo.fps && <p>FPS: {streamInfo.fps}</p>}
               </motion.div>
             )}
           </AnimatePresence>
@@ -180,7 +209,12 @@ export default function PlayerControls({ visible, videoRef }: Props): JSX.Elemen
             )}
           </AnimatePresence>
 
-          <div className="flex items-center gap-2 px-2">
+          <div
+            ref={controlsRowRef}
+            data-tv-controls
+            className="flex items-center gap-2 px-2"
+            onKeyDown={handleControlsKeyDown}
+          >
             {/* Play/Pause */}
             <ControlBtn onClick={isPlaying ? pause : resume} title={isPlaying ? 'Pause (Space)' : 'Play (Space)'}>
               {isPlaying ? (
@@ -312,10 +346,12 @@ function ControlBtn({
   return (
     <motion.button
       className="btn control-btn w-8 h-8 rounded-lg"
+      tabIndex={0}
       style={{ background: 'rgba(255,255,255,0.15)', backdropFilter: 'blur(8px)', ...style }}
       whileHover={{ background: 'rgba(255,255,255,0.25)' }}
       whileTap={{ scale: 0.9 }}
       onClick={onClick}
+      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick() } }}
       title={title}
     >
       {children}

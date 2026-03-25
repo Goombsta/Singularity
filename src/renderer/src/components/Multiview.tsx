@@ -10,12 +10,14 @@ import type { MultiviewPanel, Channel } from '../types'
 interface MiniPlayerProps {
   panel: MultiviewPanel
   allChannels: Channel[]
+  isFocused: boolean
+  onFocus: () => void
 }
 
 /** How long (ms) a panel must be stalled before we reconnect. */
 const STALL_TIMEOUT_MS = 10_000
 
-function MiniPlayer({ panel, allChannels }: MiniPlayerProps): JSX.Element {
+function MiniPlayer({ panel, allChannels, isFocused, onFocus }: MiniPlayerProps): JSX.Element {
   // Must be inside component so window.api is already set by main.tsx
   const isAndroid = window.api?.platform === 'android'
 
@@ -39,6 +41,20 @@ function MiniPlayer({ panel, allChannels }: MiniPlayerProps): JSX.Element {
   const filteredInCat = channelSearch
     ? channelsInCat.filter((c) => c.name.toLowerCase().includes(channelSearch.toLowerCase()))
     : channelsInCat
+
+  // Ref for channel select — used to auto-focus it after category is chosen on TV
+  const channelSelectRef = useRef<HTMLSelectElement>(null)
+
+  // TV: auto-advance focus to channel select after category is chosen and component re-renders
+  const isTV_ref = useRef(false)
+  useEffect(() => {
+    isTV_ref.current = window.api?.platform === 'android' && !!(window as unknown as { __IS_TV__?: boolean }).__IS_TV__
+  }, [])
+  useEffect(() => {
+    if (!isTV_ref.current || !selCategory) return
+    // requestAnimationFrame ensures DOM has re-rendered with the (now enabled) channel select
+    requestAnimationFrame(() => channelSelectRef.current?.focus())
+  }, [selCategory])
 
   const loadChannel = useCallback(
     (ch: Channel) => {
@@ -78,6 +94,17 @@ function MiniPlayer({ panel, allChannels }: MiniPlayerProps): JSX.Element {
         hls.attachMedia(video)
         hls.on(Hls.Events.MANIFEST_PARSED, () => {
           video.play().catch(() => {})
+        })
+        // HLS fatal error → reconnect after STALL_TIMEOUT_MS
+        hls.on(Hls.Events.ERROR, (_, data) => {
+          if (data.fatal && channelRef.current) {
+            if (reconnectTimerRef.current) clearTimeout(reconnectTimerRef.current)
+            setReconnecting(true)
+            reconnectTimerRef.current = setTimeout(() => {
+              const ch = channelRef.current
+              if (ch) loadChannel(ch)
+            }, STALL_TIMEOUT_MS)
+          }
         })
       } else if (isMpegTs) {
         const player = mpegts.createPlayer(
@@ -144,7 +171,7 @@ function MiniPlayer({ panel, allChannels }: MiniPlayerProps): JSX.Element {
       }
     }
 
-    const scheduleReconnect = () => {
+    const scheduleReconnect = (delayMs = STALL_TIMEOUT_MS) => {
       clearTimer()
       if (!channelRef.current) return
       reconnectTimerRef.current = setTimeout(() => {
@@ -153,13 +180,14 @@ function MiniPlayer({ panel, allChannels }: MiniPlayerProps): JSX.Element {
           setReconnecting(true)
           loadChannel(ch)
         }
-      }, STALL_TIMEOUT_MS)
+      }, delayMs)
     }
 
     const onWaiting = () => scheduleReconnect()
     const onStalled = () => scheduleReconnect()
     const onPlaying = () => { clearTimer(); setReconnecting(false) }
-    const onEnded = () => scheduleReconnect()
+    // Stream ended → reconnect to same channel after a short delay
+    const onEnded = () => scheduleReconnect(3000)
     const onError = () => scheduleReconnect()
 
     video.addEventListener('waiting', onWaiting)
@@ -194,8 +222,12 @@ function MiniPlayer({ panel, allChannels }: MiniPlayerProps): JSX.Element {
     }
   }, [panel.channel])
 
+  const isTV = window.api?.platform === 'android' && !!(window as unknown as { __IS_TV__?: boolean }).__IS_TV__
+
   return (
     <motion.div
+      data-tv-panel={panel.id}
+      tabIndex={isTV ? 0 : undefined}
       className="relative rounded-xl overflow-hidden group w-full h-full"
       style={{
         background: '#06080f',
@@ -203,7 +235,30 @@ function MiniPlayer({ panel, allChannels }: MiniPlayerProps): JSX.Element {
         boxShadow: panel.isPrimary ? '0 0 24px rgba(91,127,166,0.35)' : 'none',
       }}
       whileHover={{ scale: 1.005 }}
-      onClick={() => setPrimaryPanel(panel.id)}
+      onClick={() => { setPrimaryPanel(panel.id); onFocus() }}
+      onKeyDown={(e) => {
+        if (!isTV) return
+        // Only intercept Enter/Space when the panel div itself is focused (not a child select/button)
+        if ((e.key === 'Enter' || e.key === ' ') && e.target === e.currentTarget) { e.preventDefault(); setPrimaryPanel(panel.id) }
+        if (e.key === 'ArrowDown' && e.target === e.currentTarget) {
+          e.preventDefault()
+          // Enter panel controls: focus the category select
+          const sel = e.currentTarget.querySelector<HTMLElement>('select')
+          sel?.focus()
+        }
+        if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+          e.preventDefault()
+          const panels = Array.from(document.querySelectorAll<HTMLElement>('[data-tv-panel]'))
+          const idx = panels.indexOf(e.currentTarget)
+          if (e.key === 'ArrowLeft') panels[Math.max(0, idx - 1)]?.focus()
+          else panels[Math.min(panels.length - 1, idx + 1)]?.focus()
+        }
+        if (e.key === 'ArrowUp') {
+          e.preventDefault()
+          // Return to layout buttons
+          document.querySelector<HTMLElement>('[data-tv-layout-btn]')?.focus()
+        }
+      }}
     >
       <video
         ref={videoRef}
@@ -223,7 +278,7 @@ function MiniPlayer({ panel, allChannels }: MiniPlayerProps): JSX.Element {
         </div>
       )}
 
-      {/* Reconnecting overlay */}
+      {/* Reconnecting badge */}
       {reconnecting && (
         <div className="absolute top-2 right-2 flex items-center gap-1.5 px-2 py-1 rounded-full pointer-events-none"
           style={{ background: 'rgba(4,5,12,0.85)', border: '1px solid rgba(255,255,255,0.12)', zIndex: 20 }}>
@@ -233,14 +288,63 @@ function MiniPlayer({ panel, allChannels }: MiniPlayerProps): JSX.Element {
         </div>
       )}
 
-      {/* Controls overlay — always visible on Android (no hover on touch), hover-only on desktop */}
+      {/* Compact info strip — visible when controls are hidden (Android: not focused; desktop: always shown, replaced by hover overlay) */}
+      {panel.channel && !isAndroid && (
+        <div
+          className="absolute bottom-0 inset-x-0 flex items-center gap-1.5 px-2 py-1.5 pointer-events-none group-hover:opacity-0 transition-opacity"
+          style={{ background: 'linear-gradient(to top, rgba(4,5,12,0.8) 0%, transparent 100%)' }}
+        >
+          <p className="flex-1 text-white truncate" style={{ fontSize: 10, fontWeight: 500 }}>{panel.channel.name}</p>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 3, opacity: 0.55, flexShrink: 0 }}>
+            <svg width="8" height="8" viewBox="0 0 10 10" fill="none" stroke="white" strokeWidth="1.5" strokeLinecap="round">
+              <path d="M1 3.5h2l2.5-2v7L3 6.5H1V3.5z"/>
+              {panel.isMuted ? <><line x1="7" y1="3" x2="9.5" y2="7.5"/><line x1="9.5" y1="3" x2="7" y2="7.5"/></> : <path d="M7 3.5a2.5 2.5 0 010 3"/>}
+            </svg>
+            <div style={{ width: 22, height: 2, background: 'rgba(255,255,255,0.25)', borderRadius: 1 }}>
+              <div style={{ width: `${(panel.isMuted ? 0 : panel.volume) * 100}%`, height: '100%', background: 'rgba(255,255,255,0.8)', borderRadius: 1 }} />
+            </div>
+          </div>
+        </div>
+      )}
+      {panel.channel && isAndroid && (
+        <div
+          className="absolute bottom-0 inset-x-0 flex items-center gap-1.5 px-2 py-1.5 pointer-events-none"
+          style={{
+            background: 'linear-gradient(to top, rgba(4,5,12,0.8) 0%, transparent 100%)',
+            opacity: isFocused ? 0 : 1,
+            transition: 'opacity 0.25s',
+          }}
+        >
+          <p className="flex-1 text-white truncate" style={{ fontSize: 10, fontWeight: 500 }}>
+            {panel.channel.name}
+          </p>
+          {/* Mini volume bar */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 3, opacity: 0.55, flexShrink: 0 }}>
+            <svg width="8" height="8" viewBox="0 0 10 10" fill="none" stroke="white" strokeWidth="1.5" strokeLinecap="round">
+              <path d="M1 3.5h2l2.5-2v7L3 6.5H1V3.5z"/>
+              {panel.isMuted
+                ? <><line x1="7" y1="3" x2="9.5" y2="7.5"/><line x1="9.5" y1="3" x2="7" y2="7.5"/></>
+                : <path d="M7 3.5a2.5 2.5 0 010 3"/>
+              }
+            </svg>
+            <div style={{ width: 22, height: 2, background: 'rgba(255,255,255,0.25)', borderRadius: 1 }}>
+              <div style={{ width: `${(panel.isMuted ? 0 : panel.volume) * 100}%`, height: '100%', background: 'rgba(255,255,255,0.8)', borderRadius: 1 }} />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Controls overlay — tap-to-show on Android (isFocused), hover-only on desktop */}
       <div
-        className={`absolute bottom-0 inset-x-0 transition-opacity ${isAndroid ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}
+        className={`absolute bottom-0 inset-x-0 transition-opacity ${isAndroid ? '' : 'opacity-0 group-hover:opacity-100'}`}
         style={{
           background: 'linear-gradient(to top, rgba(4,5,12,0.97) 0%, transparent 100%)',
           padding: isAndroid ? '20px 6px 6px' : '28px 8px 8px',
+          opacity: isAndroid ? (isFocused ? 1 : 0) : undefined,
+          pointerEvents: isAndroid ? (isFocused ? 'auto' : 'none') : undefined,
+          transition: 'opacity 0.25s',
         }}
-        onClick={(e) => e.stopPropagation()}
+        onClick={(e) => { e.stopPropagation(); onFocus() }}
       >
         {/* Channel name + prev/next */}
         <div className="flex items-center gap-1 mb-1">
@@ -275,6 +379,7 @@ function MiniPlayer({ panel, allChannels }: MiniPlayerProps): JSX.Element {
 
         {/* Category dropdown */}
         <select
+          data-tv-cat-select
           className="w-full text-xs rounded-md px-2 mb-1"
           style={{
             background: 'rgba(14,16,28,0.97)',
@@ -285,8 +390,20 @@ function MiniPlayer({ panel, allChannels }: MiniPlayerProps): JSX.Element {
             height: 26,
           }}
           value={selCategory}
-          onChange={(e) => { setSelCategory(e.target.value); setChannelSearch('') }}
+          onChange={(e) => {
+            setSelCategory(e.target.value)
+            setChannelSearch('')
+            // TV focus advance is handled by useEffect([selCategory]) above
+          }}
           onClick={(e) => e.stopPropagation()}
+          onKeyDown={(e) => {
+            if (!isTV) return
+            // Escape → return focus to panel div
+            if (e.key === 'Escape') {
+              e.preventDefault()
+              e.currentTarget.closest<HTMLElement>('[data-tv-panel]')?.focus()
+            }
+          }}
         >
           <option value="" style={{ background: '#0e1020', color: '#ccc' }}>— Select category —</option>
           {categories.map((cat) => (
@@ -318,6 +435,8 @@ function MiniPlayer({ panel, allChannels }: MiniPlayerProps): JSX.Element {
         {/* Channel dropdown + volume + mute */}
         <div className="flex items-center gap-1">
           <select
+            ref={channelSelectRef}
+            data-tv-channel-select
             className="flex-1 text-xs rounded-md px-2"
             style={{
               background: 'rgba(14,16,28,0.97)',
@@ -334,6 +453,26 @@ function MiniPlayer({ panel, allChannels }: MiniPlayerProps): JSX.Element {
               if (ch) loadChannel(ch)
             }}
             onClick={(e) => e.stopPropagation()}
+            onKeyDown={(e) => {
+              if (!isTV) return
+              // ArrowUp → go back to category select
+              if (e.key === 'ArrowUp') {
+                e.preventDefault()
+                const panelEl = e.currentTarget.closest<HTMLElement>('[data-tv-panel]')
+                panelEl?.querySelector<HTMLElement>('[data-tv-cat-select]')?.focus()
+              }
+              // ArrowRight → focus volume slider
+              if (e.key === 'ArrowRight') {
+                e.preventDefault()
+                const panelEl = e.currentTarget.closest<HTMLElement>('[data-tv-panel]')
+                panelEl?.querySelector<HTMLElement>('input[type="range"]')?.focus()
+              }
+              // Escape → return focus to panel div
+              if (e.key === 'Escape') {
+                e.preventDefault()
+                e.currentTarget.closest<HTMLElement>('[data-tv-panel]')?.focus()
+              }
+            }}
           >
             <option value="" style={{ background: '#0e1020', color: '#ccc' }}>
               {selCategory ? '— Select channel —' : '← Pick a category first'}
@@ -345,7 +484,7 @@ function MiniPlayer({ panel, allChannels }: MiniPlayerProps): JSX.Element {
             ))}
           </select>
 
-          {/* Volume slider */}
+          {/* Volume slider — ArrowLeft/Right adjust volume; ArrowLeft from min returns to channel select */}
           <input
             type="range"
             min={0}
@@ -359,6 +498,18 @@ function MiniPlayer({ panel, allChannels }: MiniPlayerProps): JSX.Element {
             onPointerDown={(e) => e.stopPropagation()}
             onClick={(e) => e.stopPropagation()}
             title={`Volume: ${Math.round((panel.isMuted ? 0 : panel.volume) * 100)}%`}
+            onKeyDown={(e) => {
+              if (!isTV) return
+              // ArrowLeft at minimum → jump back to channel select
+              if (e.key === 'ArrowLeft' && (panel.isMuted ? 0 : panel.volume) <= 0.05) {
+                e.preventDefault()
+                channelSelectRef.current?.focus()
+              }
+              if (e.key === 'Escape') {
+                e.preventDefault()
+                e.currentTarget.closest<HTMLElement>('[data-tv-panel]')?.focus()
+              }
+            }}
             style={{
               width: 60,
               flexShrink: 0,
@@ -481,6 +632,16 @@ export default function Multiview(): JSX.Element {
   const { multiviewPanels, multiviewLayout, toggleMultiview, setMultiviewLayout } = usePlayerStore()
   const { playlists, activePlaylistId, setSearchQuery } = usePlaylistStore()
 
+  // Which panel has controls visible on Android (tap-to-show, auto-hide after 4s)
+  const [focusedPanelId, setFocusedPanelId] = useState<string | null>(null)
+  const focusTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const focusPanel = useCallback((id: string) => {
+    setFocusedPanelId(id)
+    if (focusTimerRef.current) clearTimeout(focusTimerRef.current)
+    focusTimerRef.current = setTimeout(() => setFocusedPanelId(null), 4000)
+  }, [])
+  useEffect(() => () => { if (focusTimerRef.current) clearTimeout(focusTimerRef.current) }, [])
+
   // On Android portrait, default to 2v (stacked) — much better than side-by-side
   useEffect(() => {
     if (isAndroid && (multiviewLayout === '4' || multiviewLayout === '2h')) {
@@ -520,10 +681,16 @@ export default function Multiview(): JSX.Element {
 
         {/* Layout selector */}
         <div className="flex items-center gap-1 flex-1 justify-center">
-          {LAYOUTS.map((l) => (
+          {LAYOUTS.map((l, li) => (
             <motion.button
               key={l.id}
+              data-tv-layout-btn={l.id}
               className="btn flex flex-col items-center gap-0.5 rounded-lg"
+              onKeyDown={(e) => {
+                if (e.key === 'ArrowRight') { e.preventDefault(); (e.currentTarget.nextElementSibling as HTMLElement)?.focus() }
+                else if (e.key === 'ArrowLeft') { e.preventDefault(); (e.currentTarget.previousElementSibling as HTMLElement)?.focus() }
+                else if (e.key === 'ArrowDown') { e.preventDefault(); document.querySelector<HTMLElement>('[data-tv-panel]')?.focus() }
+              }}
               style={{
                 background: multiviewLayout === l.id ? 'rgba(91,127,166,0.2)' : 'var(--bg-surface)',
                 color: multiviewLayout === l.id ? 'var(--accent)' : 'var(--text-secondary)',
@@ -553,7 +720,12 @@ export default function Multiview(): JSX.Element {
       <div className="flex-1 grid min-h-0" style={{ ...getGridStyle(multiviewLayout), gap: isAndroid ? 6 : 12 }}>
         {visiblePanels.map((panel, i) => (
           <div key={panel.id} className="min-h-0 h-full" style={getPanelStyle(multiviewLayout, i)}>
-            <MiniPlayer panel={panel} allChannels={filteredChannels} />
+            <MiniPlayer
+              panel={panel}
+              allChannels={filteredChannels}
+              isFocused={focusedPanelId === panel.id}
+              onFocus={() => focusPanel(panel.id)}
+            />
           </div>
         ))}
       </div>

@@ -160,6 +160,8 @@ export default function Player(): JSX.Element {
   const [stalkerUrl, setStalkerUrl] = useState<string | null>(null)
 
   const isAndroid = window.api?.platform === 'android'
+  const isTV = isAndroid && !!(window as unknown as { __IS_TV__?: boolean }).__IS_TV__
+  const [playerFocused, setPlayerFocused] = useState(false)
 
   const {
     url,
@@ -176,6 +178,8 @@ export default function Player(): JSX.Element {
     setDuration,
     setIsLive,
     setFullscreen,
+    pause: pausePlayer,
+    resume: resumePlayer,
   } = usePlayerStore()
 
   // Subscribe to error state so we can react to format errors on Android
@@ -207,9 +211,10 @@ export default function Player(): JSX.Element {
     setShowControls(true)
     clearTimeout(controlsTimerRef.current)
     controlsTimerRef.current = setTimeout(() => {
-      if (isPlaying) setShowControls(false)
+      // On TV, never auto-hide — controls must stay reachable by D-pad
+      if (isPlaying && !isTV) setShowControls(false)
     }, 3000)
-  }, [isPlaying])
+  }, [isPlaying, isTV])
 
   // Fullscreen handler
   useEffect(() => {
@@ -345,10 +350,15 @@ export default function Player(): JSX.Element {
         if (cancelled) return
         const level = hls.levels[hls.currentLevel]
         if (level) {
+          const h = level.height
+          const qualityMap: [number, string][] = [[2160,'4K'],[1440,'1440p'],[1080,'1080p'],[720,'720p'],[480,'480p'],[360,'360p']]
+          const quality = h ? (qualityMap.find(([t]) => h >= t)?.[1] ?? `${h}p`) : undefined
+          const fps = level.frameRate ? `${Math.round(level.frameRate)}fps` : undefined
           setStreamInfo({
             codec: level.videoCodec || 'H.264',
-            resolution: level.width ? `${level.width}×${level.height}` : undefined,
+            resolution: quality,
             bitrate: level.bitrate ? `${Math.round(level.bitrate / 1000)} Kbps` : undefined,
+            fps,
           })
         }
       })
@@ -463,13 +473,13 @@ export default function Player(): JSX.Element {
       // Detect resolution + audio codec support once metadata is loaded
       const onLoadedMetadata = () => {
         if (cancelled) return
-        const w = video.videoWidth
         const h = video.videoHeight
-        // Test whether common audio codecs are supported to surface a hint in the UI
+        const qualityMap: [number, string][] = [[2160,'4K'],[1440,'1440p'],[1080,'1080p'],[720,'720p'],[480,'480p'],[360,'360p']]
+        const quality = h ? (qualityMap.find(([t]) => h >= t)?.[1] ?? `${h}p`) : undefined
         const ac3 = video.canPlayType('audio/ac3') || video.canPlayType('audio/x-ac3') || video.canPlayType('audio/eac3')
         const audioHint = ac3 ? undefined : 'AC3/EAC3 audio may be unsupported — use packaged build'
         setStreamInfo({
-          resolution: w && h ? `${w}×${h}` : undefined,
+          resolution: quality,
           codec: audioHint,
           bitrate: undefined,
         })
@@ -609,10 +619,37 @@ export default function Player(): JSX.Element {
   return (
     <div
       ref={containerRef}
+      data-tv-player
+      tabIndex={isTV ? 0 : undefined}
       className="relative w-full h-full bg-black"
       onMouseMove={resetControlsTimer}
       onMouseLeave={() => isPlaying && setShowControls(false)}
-      style={{ cursor: showControls ? 'default' : 'none' }}
+      onDoubleClick={() => setFullscreen(!isFullscreen)}
+      onFocus={() => { setPlayerFocused(true); resetControlsTimer() }}
+      onBlur={() => setPlayerFocused(false)}
+      style={{ cursor: showControls ? 'default' : 'none', outline: 'none' }}
+      onKeyDown={(e) => {
+        if (!isTV) return
+        // Enter / Space → play/pause toggle
+        if ((e.key === 'Enter' || e.key === ' ') && e.target === e.currentTarget) {
+          e.preventDefault()
+          if (isPlaying) pausePlayer()
+          else resumePlayer()
+        }
+        // ArrowDown → focus first control button
+        if (e.key === 'ArrowDown' && e.target === e.currentTarget) {
+          e.preventDefault()
+          const btn = document.querySelector<HTMLElement>(
+            '[data-tv-controls] button, [data-tv-controls] input[type="range"]'
+          )
+          btn?.focus()
+        }
+        // ArrowLeft / ArrowUp → back to channel list
+        if ((e.key === 'ArrowLeft' || e.key === 'ArrowUp') && e.target === e.currentTarget) {
+          e.preventDefault()
+          document.querySelector<HTMLElement>('[data-tv-content] [tabindex="0"]')?.focus()
+        }
+      }}
     >
       {/* Episode title overlay */}
       {episodeTitle && (
@@ -628,6 +665,7 @@ export default function Player(): JSX.Element {
         className="w-full h-full"
         style={{ objectFit: 'contain' }}
         playsInline
+        tabIndex={-1}
       />
 
       {/* Loading spinner */}
@@ -658,8 +696,8 @@ export default function Player(): JSX.Element {
         </div>
       )}
 
-      {/* Controls overlay */}
-      <PlayerControls visible={showControls} videoRef={videoRef} />
+      {/* Controls overlay — always visible on TV (D-pad must be able to reach them) */}
+      <PlayerControls visible={showControls || playerFocused} videoRef={videoRef} />
     </div>
   )
 }

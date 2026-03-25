@@ -55,6 +55,7 @@ function EPGPreviewPanel({ playingChannel, playingUrl, currentProg, durationMin 
             volume={volume}
             className="rounded-xl"
             style={{ width: 480, height: 270 }}
+            fullscreenOnDoubleClick
           />
         ) : (
           /* Blank black placeholder */

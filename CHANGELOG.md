@@ -24,16 +24,27 @@
 - Action buttons (reorder/rename) are now absolutely positioned and overlay the row on hover instead of consuming flex space
 - Category names are fully visible at all times; buttons fade in over the right edge on hover with a gradient backdrop
 
-#### 5 — Multiview: auto-reconnect and daisy-chain streaming
-- Each panel monitors its stream for stalls (waiting / stalled / error events); after 10 seconds of no progress the stream is automatically reconnected — no manual intervention needed
-- When a stream ends, the panel automatically attempts to reconnect to the same channel
-- A "Reconnecting…" badge with a spinner appears in the top-right corner of the panel while a reconnect is in progress
+#### 5 — Multiview: auto-reconnect on stall or stream end
+- Each panel monitors for stalls (waiting / stalled / error events); after 10 seconds of no progress the stream reconnects automatically
+- When a stream ends, the panel reconnects to the same channel after 3 seconds — no daisy-chaining to the next channel
+- A "Reconnecting…" badge with a spinner appears in the top-right corner while a reconnect is in progress
 
-#### 6 — Installer: silent fresh install, no upgrade prompt
+#### 6 — Live TV: double-click player to toggle fullscreen
+- Double-clicking the player area enters or exits fullscreen — same as pressing F or the fullscreen button
+
+#### 7 — EPG Guide: double-click preview to toggle fullscreen
+- Double-clicking the 480×270 preview player in the EPG Guide enters or exits fullscreen
+
+#### 8 — Stream info: quality label and FPS
+- Stream info overlay (press I) now shows "Quality: 1080p · 30fps" instead of raw pixel dimensions
+- Quality label derived from stream height: 4K, 1440p, 1080p, 720p, 480p, etc.
+- FPS read from HLS manifest FRAME-RATE attribute and shown alongside quality
+
+#### 9 — Installer: silent fresh install, no upgrade prompt
 - Removed the Fresh / Upgrade / Cancel dialog — installer now always performs a clean install automatically
 - Running instance is silently killed before install; previous version is silently uninstalled; registry keys cleared to prevent the "Failed to uninstall old application files" double-uninstall error
 
-#### 6 — About page: version number tracks GitHub release tag
+#### 10 — About page: version number tracks GitHub release tag
 - Version displayed in Settings → About is now injected at build time from `package.json` and always matches the GitHub release tag
 
 ---
