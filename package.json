@@ -1,6 +1,6 @@
 {
   "name": "singularity",
-  "version": "1.3.2",
+  "version": "1.3.3",
   "description": "Singularity IPTV Player",
   "main": "out/main/index.js",
   "author": "Singularity",
@@ -15,6 +15,7 @@
     "typecheck": "tsc --noEmit",
     "build:web": "vite build --config vite.web.config.ts",
     "build:android": "npm run build:web && npx cap sync android",
+    "build:apk": "npm run build:android && node scripts/build-apk.js",
     "dev:web": "vite --config vite.web.config.ts"
   },
   "dependencies": {

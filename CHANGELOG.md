@@ -4,6 +4,23 @@
 
 ---
 
+## v1.3.3
+
+### Features & Improvements
+
+#### 1 — Stream info: FPS now measured from live playback
+- FPS is sampled directly from the video element using `getVideoPlaybackQuality()` — two readings 1 second apart give the actual decoded frame rate
+- Works on all streams regardless of whether the HLS manifest includes a `FRAME-RATE` attribute
+- FPS appears in the stream info overlay (press **I**) alongside quality: `Quality: 1080p · 30fps`
+
+### Bug Fixes
+
+#### 2 — Dev mode: renderer no longer loads a blank white screen
+- The Content Security Policy injected by the session intercept was being applied to the Vite dev server (`http://localhost:5173`), blocking Vite's module system
+- CSP is now only injected in production builds; dev mode skips it entirely
+
+---
+
 ## v1.3.2
 
 ### Features & Improvements

@@ -205,6 +205,7 @@ export default function Player(): JSX.Element {
   const hlsRef = useRef<Hls | null>(null)
   const mpegtsRef = useRef<mpegts.Player | null>(null)
   const containerRef = useRef<HTMLDivElement>(null)
+  const fpsTimersRef = useRef<ReturnType<typeof setTimeout>[]>([])
   const [showControls, setShowControls] = useState(true)
   const controlsTimerRef = useRef<ReturnType<typeof setTimeout>>()
 
@@ -426,6 +427,8 @@ export default function Player(): JSX.Element {
 
       // Fallback: read resolution from video element once metadata is decoded.
       // Fires even when the HLS manifest omits RESOLUTION= in EXT-X-STREAM-INF.
+      // Also samples FPS via getVideoPlaybackQuality() — two reads 1 s apart gives
+      // frames-per-second without needing FRAME-RATE in the manifest.
       video.addEventListener('loadedmetadata', () => {
         if (cancelled) return
         const vh = video.videoHeight
@@ -433,13 +436,30 @@ export default function Player(): JSX.Element {
         const level = hls.levels[hls.currentLevel]
         const qualityMap: [number, string][] = [[2160,'4K'],[1440,'1440p'],[1080,'1080p'],[720,'720p'],[480,'480p'],[360,'360p']]
         const quality = qualityMap.find(([t]) => vh >= t)?.[1] ?? `${vh}p`
-        const fps = level?.frameRate ? `${Math.round(level.frameRate)}fps` : undefined
+        // Use manifest frame rate if available, otherwise measure from playback
+        const manifestFps = level?.frameRate ? Math.round(level.frameRate) : 0
         setStreamInfo({
           codec: level?.videoCodec || 'H.264',
           resolution: quality,
           bitrate: level?.bitrate ? `${Math.round(level.bitrate / 1000)} Kbps` : undefined,
-          fps,
+          fps: manifestFps ? `${manifestFps}fps` : undefined,
         })
+        // Measure actual FPS: sample frame counter twice, 1 s apart
+        const t1 = setTimeout(() => {
+          if (cancelled) return
+          const f1 = video.getVideoPlaybackQuality().totalVideoFrames
+          const t2 = setTimeout(() => {
+            if (cancelled) return
+            const f2 = video.getVideoPlaybackQuality().totalVideoFrames
+            const measured = Math.round(f2 - f1)
+            if (measured > 0) {
+              const cur = usePlayerStore.getState().streamInfo
+              setStreamInfo({ ...cur, fps: `${measured}fps` })
+            }
+          }, 1000)
+          fpsTimersRef.current.push(t2)
+        }, 500)
+        fpsTimersRef.current.push(t1)
       }, { once: true })
 
       hls.on(Hls.Events.ERROR, (_, data) => {
@@ -603,6 +623,8 @@ export default function Player(): JSX.Element {
 
     return () => {
       cancelled = true
+      fpsTimersRef.current.forEach(clearTimeout)
+      fpsTimersRef.current = []
       video.removeEventListener('timeupdate', onTimeUpdate)
       video.removeEventListener('durationchange', onDurationChange)
       video.removeEventListener('playing', onPlaying)

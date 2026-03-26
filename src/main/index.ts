@@ -74,24 +74,24 @@ app.whenReady().then(() => {
   session.defaultSession.webRequest.onHeadersReceived(
     { urls: ['http://*/*', 'https://*/*'] },
     (details, callback) => {
-      callback({
-        responseHeaders: {
-          ...details.responseHeaders,
-          'Access-Control-Allow-Origin': ['*'],
-          // Content-Security-Policy — restrict what the renderer can execute
-          // media-src * and img-src * allow IPTV streams and channel logos from
-          // any origin; script-src 'self' blocks injected scripts.
-          'Content-Security-Policy': [
-            "default-src 'self';" +
-              " script-src 'self';" +
-              " style-src 'self' 'unsafe-inline';" +
-              " media-src *;" +
-              " img-src * data: blob:;" +
-              " connect-src *;" +
-              " font-src 'self' data:",
-          ],
-        },
-      })
+      const headers: Record<string, string[]> = {
+        ...details.responseHeaders,
+        'Access-Control-Allow-Origin': ['*'],
+      }
+      // Only inject CSP in production — Vite dev server needs 'unsafe-eval' for
+      // HMR and dynamic imports; injecting a strict CSP in dev breaks the renderer.
+      if (!is.dev) {
+        headers['Content-Security-Policy'] = [
+          "default-src 'self';" +
+            " script-src 'self';" +
+            " style-src 'self' 'unsafe-inline';" +
+            " media-src *;" +
+            " img-src * data: blob:;" +
+            " connect-src *;" +
+            " font-src 'self' data:",
+        ]
+      }
+      callback({ responseHeaders: headers })
     },
   )
 
