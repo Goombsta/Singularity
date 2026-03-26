@@ -4,6 +4,21 @@
 
 ---
 
+## v1.3.4
+
+### Features & Improvements
+
+#### 1 — Settings → About: Check for Updates button
+- New **Check for Updates** button below the Platform row in Settings → About
+- Queries the GitHub Releases API via the main-process network layer (bypasses renderer CORS)
+- Shows "Checking…" while in progress, then one of:
+  - **✓ Up to date** — already on the latest version
+  - **vX.X.X available ↗** (yellow badge) — newer version found; clicking opens `https://www.singularitytv.app/`
+  - **Check failed** — network error or API unavailable
+- Button remains clickable to re-check at any time
+
+---
+
 ## v1.3.3
 
 ### Features & Improvements

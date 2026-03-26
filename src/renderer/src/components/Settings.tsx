@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useCallback, useRef } from 'react'
 import { motion } from 'framer-motion'
 import { useSettingsStore } from '../stores/settingsStore'
 import { usePlaylistStore } from '../stores/playlistStore'
@@ -8,15 +8,44 @@ import singularityIcon from '../assets/singularity-icon.png'
 declare const __APP_VERSION__: string
 const version = __APP_VERSION__
 
+// Set to 'owner/repo' (e.g. 'singularity-iptv/singularity') to enable update checks.
+// Leave empty to disable. Update checks hit the public GitHub Releases API — no auth needed.
+const GITHUB_REPO = 'Goombsta/Singularity'
+
 type Tab = 'general' | 'playlists' | 'playback' | 'external' | 'cache' | 'about'
 
 export default function Settings(): JSX.Element {
   const [tab, setTab] = useState<Tab>('general')
   const isAndroid = window.api?.platform === 'android'
+  const isTV = isAndroid && !!(window as unknown as { __IS_TV__?: boolean }).__IS_TV__
+  const contentRef = useRef<HTMLDivElement>(null)
+  const tabListRef = useRef<HTMLDivElement>(null)
   const { settings, update } = useSettingsStore()
   const { playlists, removePlaylist, refreshPlaylist } = usePlaylistStore()
   const { load: loadEpg, clear: clearEpg, lastUpdated } = useEpgStore()
   const [showAddPlaylist, setShowAddPlaylist] = useState(false)
+  const [latestRelease, setLatestRelease] = useState<string | null>(null)
+  const [checkingUpdates, setCheckingUpdates] = useState(false)
+  const [updateChecked, setUpdateChecked] = useState(false)
+
+  const checkForUpdates = useCallback(async () => {
+    setCheckingUpdates(true)
+    setLatestRelease(null)
+    try {
+      // Use main-process net.fetch to bypass renderer CORS restrictions
+      const result = await window.api.net.fetch(
+        `https://api.github.com/repos/${GITHUB_REPO}/releases/latest`,
+        { headers: { 'User-Agent': 'Singularity-IPTV' } }
+      ) as { data?: string; status?: number; error?: string }
+      if (result.error || !result.data) throw new Error(result.error || 'No data')
+      const json = JSON.parse(atob(result.data)) as { tag_name?: string }
+      setLatestRelease((json?.tag_name ?? '').replace(/^v/, '') || null)
+    } catch {
+      setLatestRelease(null)
+    } finally {
+      setCheckingUpdates(false)
+    }
+  }, [])
 
   const [newEpgUrl, setNewEpgUrl] = useState('')
   const [customPlayerPath, setCustomPlayerPath] = useState('')
@@ -35,6 +64,7 @@ export default function Settings(): JSX.Element {
     <div className="flex h-full">
       {/* Tab sidebar */}
       <div
+        ref={tabListRef}
         className="flex flex-col gap-0.5 p-3 flex-shrink-0"
         style={{ width: 160, borderRight: '1px solid var(--border-hard)' }}
       >
@@ -44,20 +74,54 @@ export default function Settings(): JSX.Element {
         >
           Settings
         </p>
-        {tabs.map((t) => (
+        {tabs.map((t, i) => (
           <motion.button
             key={t.id}
+            tabIndex={0}
             className={`nav-item text-xs w-full text-left ${tab === t.id ? 'active' : ''}`}
             whileTap={{ scale: 0.97 }}
             onClick={() => setTab(t.id)}
+            onKeyDown={(e) => {
+              if (!isTV) return
+              const btns = Array.from(tabListRef.current?.querySelectorAll('button') || []) as HTMLElement[]
+              if (e.key === 'ArrowDown') { e.preventDefault(); btns[i + 1]?.focus() }
+              else if (e.key === 'ArrowUp') { e.preventDefault(); btns[i - 1]?.focus() }
+              else if (e.key === 'ArrowRight') {
+                e.preventDefault()
+                // Focus first interactive element in content, or the content scroll area
+                const first = contentRef.current?.querySelector<HTMLElement>('button, input, [tabindex="0"]')
+                ;(first ?? contentRef.current)?.focus()
+              }
+              else if (e.key === 'ArrowLeft') {
+                e.preventDefault()
+                // Return focus to TV left sidebar
+                document.querySelector<HTMLElement>('[data-tv-sidebar] button')?.focus()
+              }
+            }}
           >
             {t.label}
           </motion.button>
         ))}
       </div>
 
-      {/* Content */}
-      <div className="flex-1 overflow-y-auto p-6">
+      {/* Content — tabIndex=0 so D-pad ArrowDown/Up can scroll when no child has focus */}
+      <div
+        ref={contentRef}
+        className="flex-1 overflow-y-auto p-6"
+        tabIndex={isTV ? 0 : -1}
+        style={{ outline: 'none' }}
+        onKeyDown={(e) => {
+          if (!isTV) return
+          if (e.key === 'ArrowDown') { e.preventDefault(); contentRef.current?.scrollBy({ top: 80, behavior: 'smooth' }) }
+          else if (e.key === 'ArrowUp') { e.preventDefault(); contentRef.current?.scrollBy({ top: -80, behavior: 'smooth' }) }
+          else if (e.key === 'ArrowLeft') {
+            e.preventDefault()
+            // Return focus to the settings tab list
+            const firstTab = tabListRef.current?.querySelector<HTMLElement>('button')
+            firstTab?.focus()
+          }
+        }}
+      >
         {tab === 'general' && (
           <div className="space-y-3 max-w-md">
             <h2 className="text-xl font-bold text-metallic" style={{ fontFamily: 'Syne', letterSpacing: '-0.03em' }}>
@@ -417,7 +481,7 @@ export default function Settings(): JSX.Element {
 
             <div className="neu-raised p-4 space-y-3" style={{ borderRadius: 12 }}>
               <div className="flex justify-between items-center">
-                <span className="text-sm" style={{ color: 'var(--text-secondary)' }}>Version</span>
+                <span className="text-sm" style={{ color: 'var(--text-secondary)' }}>Installed</span>
                 <span className="text-sm font-medium font-mono" style={{ color: 'var(--text-primary)' }}>v{version}</span>
               </div>
               <div className="flex justify-between items-center">
@@ -425,6 +489,35 @@ export default function Settings(): JSX.Element {
                 <span className="text-sm font-medium font-mono" style={{ color: 'var(--text-primary)' }}>
                   {window.api?.platform ?? 'web'}
                 </span>
+              </div>
+              <div className="flex justify-between items-center" style={{ borderTop: '1px solid var(--border-hard)', paddingTop: 8, marginTop: 4 }}>
+                <span className="text-sm" style={{ color: 'var(--text-secondary)' }}>Updates</span>
+                <div className="flex items-center gap-2">
+                  {updateChecked && !checkingUpdates && latestRelease && latestRelease !== version && (
+                    <button
+                      onClick={() => window.open('https://www.singularitytv.app/', '_blank')}
+                      className="text-xs px-2 py-0.5 rounded"
+                      style={{ background: 'rgba(255,190,50,0.12)', color: 'rgba(255,190,50,0.95)', border: '1px solid rgba(255,190,50,0.3)', cursor: 'pointer' }}
+                    >
+                      v{latestRelease} available ↗
+                    </button>
+                  )}
+                  {updateChecked && !checkingUpdates && latestRelease === version && (
+                    <span className="text-xs" style={{ color: 'rgba(100,210,130,0.9)' }}>✓ Up to date</span>
+                  )}
+                  {updateChecked && !checkingUpdates && !latestRelease && (
+                    <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>Check failed</span>
+                  )}
+                  <motion.button
+                    className="btn text-xs px-3 py-1"
+                    whileTap={{ scale: 0.96 }}
+                    disabled={checkingUpdates}
+                    onClick={() => { setUpdateChecked(true); checkForUpdates() }}
+                    style={{ background: 'var(--bg-base)', border: '1px solid var(--border-hard)', color: 'var(--text-primary)', opacity: checkingUpdates ? 0.6 : 1 }}
+                  >
+                    {checkingUpdates ? 'Checking…' : 'Check for Updates'}
+                  </motion.button>
+                </div>
               </div>
             </div>
           </div>
