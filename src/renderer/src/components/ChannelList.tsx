@@ -11,6 +11,23 @@ import { getProgramProgress } from '../utils/formatters'
 import { resolveChannelUrl } from '../utils/stalkerApi'
 import type { Channel } from '../types'
 import AddPlaylistModal from './AddPlaylistModal'
+import tvLogoFallback from '../assets/tvlogo.png'
+
+function ChannelLogo({ src }: { src?: string }): JSX.Element {
+  const [failed, setFailed] = useState(false)
+  const showFallback = !src || failed
+  return showFallback ? (
+    <img src={tvLogoFallback} alt="" className="w-full h-full object-contain" />
+  ) : (
+    <img
+      src={src}
+      alt=""
+      className="w-full h-full object-contain"
+      loading="lazy"
+      onError={() => setFailed(true)}
+    />
+  )
+}
 
 interface RowProps {
   index: number
@@ -145,16 +162,22 @@ function ChannelRow({ index, style, data }: RowProps): JSX.Element {
             onKeyDown={(e) => {
               e.stopPropagation()
               if (e.key === 'Escape') { setMenuPos(null); return }
-              // ArrowDown/Up navigate between menu buttons
               const btns = Array.from(menuRef.current?.querySelectorAll<HTMLElement>('button') || [])
               const idx = btns.indexOf(document.activeElement as HTMLElement)
               if (e.key === 'ArrowDown') { e.preventDefault(); btns[Math.min(idx + 1, btns.length - 1)]?.focus() }
               if (e.key === 'ArrowUp') { e.preventDefault(); btns[Math.max(idx - 1, 0)]?.focus() }
+              // Explicitly fire the focused button on Enter/Space — ensures reliable
+              // activation on Android TV where native button-click-on-Enter can be unreliable.
+              if ((e.key === 'Enter' || e.key === ' ') && idx >= 0) {
+                e.preventDefault()
+                btns[idx].click()
+              }
             }}
           >
             <div style={{ padding: '6px 0' }}>
               {/* Add / Remove Favorites */}
               <button
+                tabIndex={0}
                 style={{
                   display: 'flex', alignItems: 'center', gap: 10,
                   width: '100%', padding: '12px 16px', background: 'transparent',
@@ -172,6 +195,7 @@ function ChannelRow({ index, style, data }: RowProps): JSX.Element {
               </button>
               {/* Open in External Player */}
               <button
+                tabIndex={0}
                 style={{
                   display: 'flex', alignItems: 'center', gap: 10,
                   width: '100%', padding: '12px 16px', background: 'transparent',
@@ -191,6 +215,7 @@ function ChannelRow({ index, style, data }: RowProps): JSX.Element {
               <div style={{ height: 1, background: 'var(--border-hard)', margin: '4px 0' }} />
               {/* Cancel */}
               <button
+                tabIndex={0}
                 style={{
                   display: 'flex', alignItems: 'center', gap: 10,
                   width: '100%', padding: '12px 16px', background: 'transparent',
@@ -222,7 +247,13 @@ function ChannelRow({ index, style, data }: RowProps): JSX.Element {
         onPointerLeave={handlePointerUp}
         onContextMenu={(e) => { e.preventDefault(); setMenuPos({ x: e.clientX, y: e.clientY }) }}
         onKeyDown={(e) => {
-          if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); data.onPlay(ch) }
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault()
+            // If this channel is already playing, a second Enter enters fullscreen.
+            // If not, start playing it.
+            if (isActive) data.onFullscreen()
+            else data.onPlay(ch)
+          }
           if (e.key === 'ContextMenu') { e.preventDefault(); const r = rowRef.current?.getBoundingClientRect(); if (r) setMenuPos({ x: r.left + r.width / 2, y: r.bottom }) }
           if (e.key === 'ArrowDown') { e.preventDefault(); data.onFocusIndex(Math.min(index + 1, data.channels.length - 1)) }
           if (e.key === 'ArrowUp') { e.preventDefault(); data.onFocusIndex(Math.max(index - 1, 0)) }
@@ -247,15 +278,7 @@ function ChannelRow({ index, style, data }: RowProps): JSX.Element {
             boxShadow: 'var(--shadow-raised-sm)',
           }}
         >
-          {ch.logo ? (
-            <img src={ch.logo} alt="" className="w-full h-full object-contain" loading="lazy" />
-          ) : (
-            <div className="w-full h-full flex items-center justify-center">
-              <span className="text-xs font-bold" style={{ color: 'var(--text-secondary)' }}>
-                {ch.name.slice(0, 2).toUpperCase()}
-              </span>
-            </div>
-          )}
+          <ChannelLogo src={ch.logo} />
         </div>
 
         {/* Info */}

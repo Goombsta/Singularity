@@ -4,6 +4,16 @@
 
 ---
 
+## v1.3.6
+
+### Features & Improvements
+
+#### 1 — Default channel logo for streams without artwork
+- Channels without a `tvg-logo` URL now show a custom default image (`tvlogo.png`) instead of text initials
+- Channels with a broken or unreachable logo URL also fall back to the default image (via `onError` handler)
+
+---
+
 ## v1.3.5
 
 ### Features & Improvements
