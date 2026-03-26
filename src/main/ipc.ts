@@ -1,8 +1,9 @@
 import { ipcMain, dialog, BrowserWindow, shell, app } from 'electron'
-import { existsSync } from 'fs'
+import { existsSync, createWriteStream, unlink } from 'fs'
 import { readFile, writeFile } from 'fs/promises'
 import { spawn } from 'child_process'
-import { normalize, resolve } from 'path'
+import { normalize, resolve, join } from 'path'
+import https from 'https'
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 import Store from 'electron-store'
 import * as castService from './castService'
@@ -243,6 +244,35 @@ export function registerIpcHandlers(): void {
         resolve({ error: String(err), status: 0 })
       }
     })
+  })
+
+  // Download a platform-specific installer to temp dir and run it via shell.openPath
+  ipcMain.handle('updater:download', async (_event, url: string) => {
+    if (!isSafeUrl(url)) return { error: 'Blocked URL' }
+    const fileName = url.split('/').pop() ?? 'Singularity-update'
+    const destPath = join(app.getPath('temp'), fileName)
+
+    try {
+      await new Promise<void>((resolve, reject) => {
+        const file = createWriteStream(destPath)
+        https.get(url, (res) => {
+          if (res.statusCode !== 200) {
+            file.close()
+            unlink(destPath, () => {})
+            reject(new Error(`HTTP ${res.statusCode}`))
+            return
+          }
+          res.pipe(file)
+          file.on('finish', () => { file.close(); resolve() })
+          file.on('error', (err) => { file.close(); unlink(destPath, () => {}); reject(err) })
+        }).on('error', (err) => { file.close(); unlink(destPath, () => {}); reject(err) })
+      })
+      const errMsg = await shell.openPath(destPath)
+      if (errMsg) return { error: errMsg }
+      return { success: true }
+    } catch (err) {
+      return { error: String(err) }
+    }
   })
 
   // ── Casting ────────────────────────────────────────────────────────────────

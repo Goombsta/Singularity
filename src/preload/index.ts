@@ -42,6 +42,10 @@ const api = {
     fetch: (url: string, options?: { headers?: Record<string, string> }) =>
       ipcRenderer.invoke('net:fetch', url, options),
   },
+  // Updater — download platform installer to temp and run it
+  updater: {
+    download: (url: string) => ipcRenderer.invoke('updater:download', url),
+  },
   // Casting (Chromecast + DLNA)
   cast: {
     getDevices: () => ipcRenderer.invoke('cast:getDevices'),

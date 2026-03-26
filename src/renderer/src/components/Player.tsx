@@ -5,61 +5,7 @@ import { usePlayerStore } from '../stores/playerStore'
 import PlayerControls from './PlayerControls'
 import { resolveChannelUrl } from '../utils/stalkerApi'
 
-// ─── Android HLS Loader ────────────────────────────────────────────────────
-// On Android, HLS.js XHR runs inside the WebView which enforces CORS. Cellular
-// carrier transparent proxies often strip Access-Control-Allow-Origin headers,
-// causing CORS failures that WiFi (direct connection, no proxy) doesn't hit.
-// Fix: route HLS.js requests through window.api.net.fetch → CapacitorHttp →
-// native OkHttp, which bypasses the WebView CORS stack entirely.
-function makeAndroidHlsLoader() {
-  function b64ToArrayBuffer(b64: string): ArrayBuffer {
-    const binary = atob(b64)
-    const bytes = new Uint8Array(binary.length)
-    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i)
-    return bytes.buffer
-  }
-
-  return class AndroidLoader {
-    private aborted = false
-    stats = {
-      aborted: false, loaded: 0, retry: 0, total: 0, chunkCount: 0, bwEstimate: 0,
-      loading: { start: 0, first: 0, end: 0 },
-      parsing: { start: 0, end: 0 },
-      buffering: { start: 0, first: 0, end: 0 },
-    }
-    context: unknown = null
-
-    load(context: { url: string; responseType: string }, _cfg: unknown, callbacks: {
-      onSuccess: (r: { url: string; data: string | ArrayBuffer }, s: unknown, c: unknown, n: unknown) => void
-      onError: (e: { code: number; text: string }, c: unknown, n: unknown, s: unknown) => void
-    }) {
-      this.aborted = false
-      this.context = context
-      const t0 = performance.now()
-      window.api.net.fetch(context.url).then((res: { data: string; status: number }) => {
-        if (this.aborted) return
-        if (res.status < 200 || res.status >= 300) {
-          callbacks.onError({ code: res.status, text: `HTTP ${res.status}` }, context, null, this.stats)
-          return
-        }
-        const buf = b64ToArrayBuffer(res.data)
-        const data: string | ArrayBuffer = context.responseType === 'arraybuffer'
-          ? buf
-          : new TextDecoder().decode(buf)
-        const t1 = performance.now()
-        const stats = { ...this.stats, loaded: buf.byteLength, total: buf.byteLength,
-          loading: { start: t0, first: t1, end: t1 } }
-        callbacks.onSuccess({ url: context.url, data }, stats, context, null)
-      }).catch((err: Error) => {
-        if (this.aborted) return
-        callbacks.onError({ code: 0, text: err?.message || 'Network error' }, context, null, this.stats)
-      })
-    }
-
-    abort() { this.aborted = true }
-    destroy() { this.aborted = true }
-  }
-}
+const STALL_TIMEOUT_MS = 10_000
 
 // ─── Series Episode Picker ─────────────────────────────────────────────────
 
@@ -206,6 +152,8 @@ export default function Player(): JSX.Element {
   const mpegtsRef = useRef<mpegts.Player | null>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   const fpsTimersRef = useRef<ReturnType<typeof setTimeout>[]>([])
+  const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const [reconnecting, setReconnecting] = useState(false)
   const [showControls, setShowControls] = useState(true)
   const controlsTimerRef = useRef<ReturnType<typeof setTimeout>>()
 
@@ -352,6 +300,29 @@ export default function Player(): JSX.Element {
 
     setLoading(true)
     setError(null)
+    setReconnecting(false)
+    if (reconnectTimerRef.current) { clearTimeout(reconnectTimerRef.current); reconnectTimerRef.current = null }
+
+    // Reconnect helper — used by all three playback paths (HLS.js / mpegts / native)
+    const scheduleReconnect = (delayMs = STALL_TIMEOUT_MS) => {
+      if (reconnectTimerRef.current) clearTimeout(reconnectTimerRef.current)
+      reconnectTimerRef.current = setTimeout(() => {
+        if (cancelled) return
+        setReconnecting(true)
+        if (hlsRef.current) {
+          // HLS.js network recovery: resume loading from the live edge
+          hlsRef.current.startLoad(-1)
+        } else if (mpegtsRef.current) {
+          mpegtsRef.current.unload()
+          mpegtsRef.current.load()
+          video.play().catch(() => {})
+        } else {
+          // Native <video>: reload the current source
+          video.load()
+          video.play().catch(() => {})
+        }
+      }, delayMs)
+    }
 
     // Apply volume/mute before any play() fires
     video.volume = volume
@@ -375,11 +346,8 @@ export default function Player(): JSX.Element {
 
     if (isHls && Hls.isSupported()) {
       // ── HLS / TS playback via HLS.js ───────────────────────────
-      const isAndroid = window.api?.platform === 'android'
       const hls = new Hls({
         enableWorker: true,
-        // On Android use native HTTP loader to bypass WebView CORS (carrier proxy strips CORS headers on cellular)
-        ...(isAndroid ? { loader: makeAndroidHlsLoader() as unknown as typeof Hls.DefaultConfig.loader } : {}),
         backBufferLength: 30,
         maxBufferLength: 60,
         maxMaxBufferLength: 120,
@@ -511,6 +479,16 @@ export default function Player(): JSX.Element {
           return
         }
 
+        // Network errors (stall, timeout, loss of connectivity) → auto-reconnect
+        if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
+          scheduleReconnect()
+          return
+        }
+        // Media errors (codec decode failure) → HLS.js internal recovery
+        if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
+          hls.recoverMediaError()
+          return
+        }
         setError('Stream error — the channel may be offline or temporarily unavailable.')
         setLoading(false)
       })
@@ -551,12 +529,9 @@ export default function Player(): JSX.Element {
         video.addEventListener('canplay', onMpegTsCanPlay, { once: true })
 
         // mpegts.Events.ERROR signature: (errorType, errorDetail, errorInfo)
-        player.on(mpegts.Events.ERROR, (_errorType: unknown, errorDetail: unknown, errorInfo: unknown) => {
+        player.on(mpegts.Events.ERROR, (_errorType: unknown, _errorDetail: unknown, _errorInfo: unknown) => {
           if (cancelled) return
-          const info = errorInfo as { msg?: string } | null
-          const detail = typeof errorDetail === 'string' ? errorDetail : ''
-          setError(info?.msg || detail || 'Stream error — the channel may be offline.')
-          setLoading(false)
+          scheduleReconnect()
         })
       } catch (e) {
         // mpegts.js failed to initialize — surface error and let user open externally
@@ -604,7 +579,16 @@ export default function Player(): JSX.Element {
 
     const onTimeUpdate = () => { if (!cancelled) setCurrentTime(video.currentTime) }
     const onDurationChange = () => { if (!cancelled) setDuration(video.duration) }
-    const onPlaying = () => { if (!cancelled) setLoading(false) }
+    const onPlaying = () => {
+      if (!cancelled) {
+        setLoading(false)
+        setReconnecting(false)
+        if (reconnectTimerRef.current) { clearTimeout(reconnectTimerRef.current); reconnectTimerRef.current = null }
+      }
+    }
+    const onWaiting = () => { if (!cancelled) scheduleReconnect() }
+    const onStalled = () => { if (!cancelled) scheduleReconnect() }
+    const onEnded = () => { if (!cancelled) scheduleReconnect(3000) }
     const onError = () => {
       if (cancelled) return
       const err = video.error
@@ -612,22 +596,29 @@ export default function Player(): JSX.Element {
       if (err.code === MediaError.MEDIA_ERR_SRC_NOT_SUPPORTED) {
         setError('Format not supported — try opening in an external player (VLC).')
       } else if (err.code !== MediaError.MEDIA_ERR_ABORTED) {
-        setError('Playback error — stream may be offline or the format is unsupported.')
+        scheduleReconnect()
       }
     }
 
     video.addEventListener('timeupdate', onTimeUpdate)
     video.addEventListener('durationchange', onDurationChange)
     video.addEventListener('playing', onPlaying)
+    video.addEventListener('waiting', onWaiting)
+    video.addEventListener('stalled', onStalled)
+    video.addEventListener('ended', onEnded)
     video.addEventListener('error', onError)
 
     return () => {
       cancelled = true
       fpsTimersRef.current.forEach(clearTimeout)
       fpsTimersRef.current = []
+      if (reconnectTimerRef.current) { clearTimeout(reconnectTimerRef.current); reconnectTimerRef.current = null }
       video.removeEventListener('timeupdate', onTimeUpdate)
       video.removeEventListener('durationchange', onDurationChange)
       video.removeEventListener('playing', onPlaying)
+      video.removeEventListener('waiting', onWaiting)
+      video.removeEventListener('stalled', onStalled)
+      video.removeEventListener('ended', onEnded)
       video.removeEventListener('error', onError)
       if (hlsRef.current) {
         hlsRef.current.destroy()
@@ -776,6 +767,22 @@ export default function Player(): JSX.Element {
             className="w-10 h-10 rounded-full border-2 animate-spin"
             style={{ borderColor: 'rgba(255,255,255,0.2)', borderTopColor: 'white' }}
           />
+        </div>
+      )}
+
+      {/* Reconnecting badge — shown during stall recovery, hides once playback resumes */}
+      {reconnecting && !usePlayerStore.getState().isLoading && (
+        <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+          <div
+            className="flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium text-white"
+            style={{ background: 'rgba(0,0,0,0.7)' }}
+          >
+            <div
+              className="w-3.5 h-3.5 rounded-full border-2 animate-spin flex-shrink-0"
+              style={{ borderColor: 'rgba(255,255,255,0.3)', borderTopColor: 'white' }}
+            />
+            Reconnecting…
+          </div>
         </div>
       )}
 

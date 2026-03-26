@@ -4,6 +4,21 @@
 
 ---
 
+## v1.3.5
+
+### Features & Improvements
+
+#### 1 — Check for Updates: platform-aware auto-download
+- When an update is available the yellow badge now reads **"v1.x.x — Download Update"** instead of opening a browser link
+- Clicking it downloads the correct installer for the current platform to the system temp directory and launches it automatically:
+  - **Windows** → `Singularity.Setup.exe` (NSIS installer, silent fresh install)
+  - **macOS** → `Singularity.dmg` (mounts in Finder)
+  - **Android** → `Singularity.apk`
+- Badge state tracks the download: "Downloading…" → "Installing…" (once launched) or red "Download failed — retry"
+- macOS build artifact renamed to `Singularity.dmg` (no version/arch suffix) for consistent download URL
+
+---
+
 ## v1.3.4
 
 ### Features & Improvements

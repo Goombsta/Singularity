@@ -4,7 +4,7 @@ import type { Settings } from '../types'
 const defaults: Settings = {
   startMinimized: false,
   minimizeToTray: true,
-  darkMode: false,
+  darkMode: true,
   hardwareAcceleration: true,
   bufferSize: 30,
   externalPlayers: [],

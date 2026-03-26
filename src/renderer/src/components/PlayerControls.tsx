@@ -79,13 +79,24 @@ export default function PlayerControls({ visible, videoRef }: Props): JSX.Elemen
   }
 
   const handleExternalPlayer = async () => {
-    if (!channel || !settings.defaultExternalPlayer) return
-    const player = settings.externalPlayers.find((p) => p.name === settings.defaultExternalPlayer)
-    if (!player) return
+    if (!channel) return
     // Stalker channels need a fresh create_link URL — never pass the raw localhost cmd to VLC
     const streamUrl = channel.stalkerCmd
       ? await resolveChannelUrl(channel)
       : channel.url
+    if (!streamUrl) return
+
+    if (isAndroid) {
+      // Android: show the system Intent chooser (VLC, MX Player, etc.)
+      // No pre-configured player needed — the OS handles app selection.
+      await window.api.player.openExternal('', streamUrl)
+      return
+    }
+
+    // Desktop: use the configured default player
+    if (!settings.defaultExternalPlayer) return
+    const player = settings.externalPlayers.find((p) => p.name === settings.defaultExternalPlayer)
+    if (!player) return
     await window.api.player.openExternal(player.path, streamUrl)
   }
 
@@ -302,8 +313,9 @@ export default function PlayerControls({ visible, videoRef }: Props): JSX.Elemen
               </ControlBtn>
             )}
 
-            {/* External player */}
-            {settings.externalPlayers.length > 0 && (
+            {/* External player — always visible on Android (Intent chooser handles app selection),
+                or on desktop when at least one player is configured */}
+            {(isAndroid || settings.externalPlayers.length > 0) && (
               <ControlBtn onClick={handleExternalPlayer} title="Open in external player">
                 <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="white" strokeWidth="1.5">
                   <path d="M5 2H2a1 1 0 00-1 1v7a1 1 0 001 1h8a1 1 0 001-1V7"/>

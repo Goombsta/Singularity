@@ -12,6 +12,12 @@ const version = __APP_VERSION__
 // Leave empty to disable. Update checks hit the public GitHub Releases API — no auth needed.
 const GITHUB_REPO = 'Goombsta/Singularity'
 
+const PLATFORM_DOWNLOAD_URLS: Record<string, string> = {
+  win32:   'https://www.singularitytv.app/downloads/Singularity.Setup.exe',
+  darwin:  'https://www.singularitytv.app/downloads/Singularity.dmg',
+  android: 'https://www.singularitytv.app/downloads/Singularity.apk',
+}
+
 type Tab = 'general' | 'playlists' | 'playback' | 'external' | 'cache' | 'about'
 
 export default function Settings(): JSX.Element {
@@ -27,8 +33,18 @@ export default function Settings(): JSX.Element {
   const [latestRelease, setLatestRelease] = useState<string | null>(null)
   const [checkingUpdates, setCheckingUpdates] = useState(false)
   const [updateChecked, setUpdateChecked] = useState(false)
+  const [downloadState, setDownloadState] = useState<'idle' | 'downloading' | 'done' | 'error'>('idle')
+
+  const downloadUpdate = useCallback(async () => {
+    const url = PLATFORM_DOWNLOAD_URLS[window.api?.platform ?? '']
+    if (!url) return
+    setDownloadState('downloading')
+    const result = await window.api.updater.download(url) as { success?: boolean; error?: string }
+    setDownloadState(result?.success ? 'done' : 'error')
+  }, [])
 
   const checkForUpdates = useCallback(async () => {
+    setDownloadState('idle')
     setCheckingUpdates(true)
     setLatestRelease(null)
     try {
@@ -495,11 +511,20 @@ export default function Settings(): JSX.Element {
                 <div className="flex items-center gap-2">
                   {updateChecked && !checkingUpdates && latestRelease && latestRelease !== version && (
                     <button
-                      onClick={() => window.open('https://www.singularitytv.app/', '_blank')}
+                      onClick={downloadState === 'downloading' || downloadState === 'done' ? undefined : downloadUpdate}
+                      disabled={downloadState === 'downloading' || downloadState === 'done'}
                       className="text-xs px-2 py-0.5 rounded"
-                      style={{ background: 'rgba(255,190,50,0.12)', color: 'rgba(255,190,50,0.95)', border: '1px solid rgba(255,190,50,0.3)', cursor: 'pointer' }}
+                      style={{
+                        background: downloadState === 'error' ? 'rgba(255,80,80,0.12)' : 'rgba(255,190,50,0.12)',
+                        color: downloadState === 'error' ? 'rgba(255,100,100,0.95)' : 'rgba(255,190,50,0.95)',
+                        border: `1px solid ${downloadState === 'error' ? 'rgba(255,100,100,0.3)' : 'rgba(255,190,50,0.3)'}`,
+                        cursor: downloadState === 'downloading' || downloadState === 'done' ? 'default' : 'pointer',
+                      }}
                     >
-                      v{latestRelease} available ↗
+                      {downloadState === 'idle' && `v${latestRelease} — Download Update`}
+                      {downloadState === 'downloading' && 'Downloading…'}
+                      {downloadState === 'done' && 'Installing…'}
+                      {downloadState === 'error' && 'Download failed — retry'}
                     </button>
                   )}
                   {updateChecked && !checkingUpdates && latestRelease === version && (

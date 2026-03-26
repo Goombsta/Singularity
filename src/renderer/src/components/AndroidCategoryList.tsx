@@ -1,11 +1,44 @@
 import { motion } from 'framer-motion'
 import { usePlaylistStore } from '../stores/playlistStore'
+import { usePlayerStore } from '../stores/playerStore'
 
 export default function AndroidCategoryList(): JSX.Element {
-  const { groups, setActiveGroup } = usePlaylistStore()
+  const { groups, setActiveGroup, playlists, activePlaylistId, setActivePlaylist } = usePlaylistStore()
+  const { stop } = usePlayerStore()
 
   return (
     <div className="flex flex-col flex-1 overflow-y-auto" style={{ padding: '8px 0' }}>
+      {/* Playlist switcher — only shown when multiple playlists are loaded */}
+      {playlists.length > 1 && (
+        <div
+          className="flex gap-1.5 px-3 pb-2 overflow-x-auto flex-shrink-0"
+          style={{ scrollbarWidth: 'none' }}
+        >
+          {playlists.map((pl) => {
+            const active = pl.id === activePlaylistId
+            return (
+              <button
+                key={pl.id}
+                onClick={() => {
+                  if (active) return
+                  stop()
+                  setActivePlaylist(pl.id)
+                }}
+                className="btn flex-shrink-0 text-xs rounded-full px-3 py-1"
+                style={{
+                  background: active ? 'var(--accent)' : 'var(--bg-raised)',
+                  color: active ? '#fff' : 'var(--text-secondary)',
+                  border: active ? 'none' : '1px solid var(--border-hard)',
+                  fontWeight: active ? 600 : 400,
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                {pl.name}
+              </button>
+            )
+          })}
+        </div>
+      )}
       <p
         className="px-4 pb-2 text-xs font-semibold"
         style={{
@@ -26,12 +59,19 @@ export default function AndroidCategoryList(): JSX.Element {
           onKeyDown={(e) => {
             if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setActiveGroup(g) }
             if (e.key === 'ArrowDown') {
+              e.preventDefault()
               const next = e.currentTarget.parentElement?.children[i + 2] as HTMLElement | undefined
               next?.focus()
             }
             if (e.key === 'ArrowUp') {
+              e.preventDefault()
               const prev = e.currentTarget.parentElement?.children[i] as HTMLElement | undefined
               prev?.focus()
+            }
+            if (e.key === 'ArrowLeft') {
+              e.preventDefault()
+              // Focus sidebar nav — sidebar's onFocus handler will auto-expand it
+              document.querySelector<HTMLElement>('[data-tv-sidebar] .nav-item')?.focus()
             }
           }}
           className="flex items-center gap-3 px-4 py-3 text-left w-full"

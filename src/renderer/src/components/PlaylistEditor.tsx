@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
-import { motion, AnimatePresence, Reorder } from 'framer-motion'
+import { motion, AnimatePresence, Reorder, useDragControls } from 'framer-motion'
 import { FixedSizeList as List } from 'react-window'
 import { usePlaylistStore } from '../stores/playlistStore'
 import type { Channel } from '../types'
@@ -179,6 +179,89 @@ function ChannelEditorRow({
   )
 }
 
+/**
+ * Reorder.Item that requires a 2-second long press before drag activates.
+ * Short taps (< 2s) propagate normally — buttons and selects still work.
+ * Movement > 8px during hold cancels the press (allows normal scrolling).
+ */
+function LongPressReorderItem({
+  value,
+  whileDrag,
+  children,
+}: {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  value: any
+  whileDrag?: object
+  children: React.ReactNode
+}): JSX.Element {
+  const controls = useDragControls()
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const [pressing, setPressing] = useState(false)
+  const startPos = useRef({ x: 0, y: 0 })
+  const pointerRef = useRef<{ event: PointerEvent; target: HTMLElement } | null>(null)
+
+  function onPointerDown(e: React.PointerEvent) {
+    startPos.current = { x: e.clientX, y: e.clientY }
+    pointerRef.current = { event: e.nativeEvent, target: e.currentTarget as HTMLElement }
+    setPressing(true)
+    timer.current = setTimeout(() => {
+      setPressing(false)
+      const ref = pointerRef.current
+      if (ref) {
+        try { ref.target.setPointerCapture(ref.event.pointerId) } catch { /* ignore */ }
+        controls.start(ref.event)
+      }
+    }, 2000)
+  }
+
+  function onPointerMove(e: React.PointerEvent) {
+    if (!pressing) return
+    const dx = Math.abs(e.clientX - startPos.current.x)
+    const dy = Math.abs(e.clientY - startPos.current.y)
+    if (dx > 8 || dy > 8) cancel()
+  }
+
+  function cancel() {
+    if (timer.current) { clearTimeout(timer.current); timer.current = null }
+    setPressing(false)
+    pointerRef.current = null
+  }
+
+  return (
+    <Reorder.Item
+      value={value}
+      dragControls={controls}
+      dragListener={false}
+      style={{ listStyle: 'none' }}
+      whileDrag={whileDrag ?? { scale: 1.02, boxShadow: '0 4px 16px rgba(0,0,0,0.3)', zIndex: 50, borderRadius: 8 }}
+    >
+      <div
+        style={{ position: 'relative' }}
+        onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
+        onPointerUp={cancel}
+        onPointerLeave={cancel}
+        onPointerCancel={cancel}
+      >
+        {/* Subtle highlight while holding — grows in opacity over the 2 seconds */}
+        {pressing && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ duration: 2 }}
+            style={{
+              position: 'absolute', inset: 0, borderRadius: 8, pointerEvents: 'none', zIndex: 1,
+              background: 'rgba(91,127,166,0.15)',
+              outline: '1.5px solid rgba(91,127,166,0.35)',
+            }}
+          />
+        )}
+        {children}
+      </div>
+    </Reorder.Item>
+  )
+}
+
 // react-window item renderer wrapper
 function VirtualChannelRow({
   index,
@@ -190,6 +273,26 @@ function VirtualChannelRow({
   data: RowData
 }): JSX.Element {
   return <ChannelEditorRow index={index} style={style} data={data} />
+}
+
+const isTV = typeof window !== 'undefined' &&
+  window.api?.platform === 'android' &&
+  !!(window as unknown as { __IS_TV__?: boolean }).__IS_TV__
+
+/** Shared ArrowUp/Down handler for TV D-pad navigation between category buttons */
+function tvCatKeyDown(e: React.KeyboardEvent<HTMLButtonElement>) {
+  if (!isTV) return
+  const container = e.currentTarget.closest<HTMLElement>('[data-tv-cat-list]')
+  if (!container) return
+  const btns = Array.from(container.querySelectorAll<HTMLElement>('button[data-tv-cat]'))
+  const idx = btns.indexOf(e.currentTarget)
+  if (e.key === 'ArrowDown') { e.preventDefault(); btns[Math.min(idx + 1, btns.length - 1)]?.focus() }
+  else if (e.key === 'ArrowUp') { e.preventDefault(); btns[Math.max(idx - 1, 0)]?.focus() }
+  else if (e.key === 'ArrowRight') {
+    e.preventDefault()
+    // Move to channel list
+    document.querySelector<HTMLElement>('[data-tv-channel-list] [tabindex="0"]')?.focus()
+  }
 }
 
 export default function PlaylistEditor(): JSX.Element {
@@ -222,6 +325,7 @@ export default function PlaylistEditor(): JSX.Element {
   const [groupSearch, setGroupSearch] = useState('')
   const [groupEditing, setGroupEditing] = useState<string | null>(null)
   const [groupEditValue, setGroupEditValue] = useState('')
+  const [catCollapsed, setCatCollapsed] = useState(false)
 
   // Virtualized list sizing
   const containerRef = useRef<HTMLDivElement>(null)
@@ -344,11 +448,50 @@ export default function PlaylistEditor(): JSX.Element {
       {/* Body: category column + channel list */}
       <div className="flex flex-1 overflow-hidden">
 
-        {/* Left: category column */}
+        {/* Left: category column — collapses to 40px rail after a category is selected */}
         <div
           className="flex flex-col flex-shrink-0 overflow-hidden"
-          style={{ width: 260, borderRight: '1px solid var(--border-hard)', background: 'var(--bg-surface)' }}
+          style={{
+            width: catCollapsed ? 40 : 260,
+            transition: 'width 0.2s ease',
+            borderRight: '1px solid var(--border-hard)',
+            background: 'var(--bg-surface)',
+          }}
         >
+          {/* Collapsed rail: expand button + active category name (vertical) */}
+          {catCollapsed && (
+            <div className="flex flex-col items-center py-2 gap-2 w-full">
+              <button
+                className="btn-neu btn flex items-center justify-center flex-shrink-0"
+                style={{ width: 28, height: 28, padding: 0 }}
+                onClick={() => setCatCollapsed(false)}
+                title="Show categories"
+              >
+                <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.5">
+                  <polyline points="3,2 7,5 3,8"/>
+                </svg>
+              </button>
+              {activeGroup && (
+                <span style={{
+                  writingMode: 'vertical-rl',
+                  textOrientation: 'mixed',
+                  fontSize: 10,
+                  fontWeight: 600,
+                  color: 'var(--accent)',
+                  overflow: 'hidden',
+                  maxHeight: 160,
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap',
+                  letterSpacing: '0.04em',
+                  opacity: 0.85,
+                }}>
+                  {activeGroup}
+                </span>
+              )}
+            </div>
+          )}
+          {/* Full panel content — hidden when collapsed */}
+          {!catCollapsed && (<>
           {/* Group search */}
           <div className="px-2 pt-2 pb-1 flex-shrink-0">
             <div className="relative">
@@ -375,12 +518,15 @@ export default function PlaylistEditor(): JSX.Element {
           </p>
 
           {/* Group list */}
-          <div className="flex-1 overflow-y-auto px-2 pb-2">
+          <div className="flex-1 overflow-y-auto px-2 pb-2" data-tv-cat-list>
             {/* "All" — always pinned, not draggable */}
             <button
+              data-tv-cat
+              data-tv-initial-focus
               className={`nav-item w-full text-left ${!activeGroup ? 'active' : ''}`}
               style={{ paddingLeft: 10, fontSize: 12 }}
-              onClick={() => setActiveGroup(null)}
+              onClick={() => { setActiveGroup(null); setCatCollapsed(false) }}
+              onKeyDown={tvCatKeyDown}
             >
               <svg width="11" height="11" viewBox="0 0 11 11" fill="none" stroke="currentColor" strokeWidth="1.4">
                 <path d="M1 2.5h9M1 5.5h6.5M1 8.5h7.5"/>
@@ -392,9 +538,15 @@ export default function PlaylistEditor(): JSX.Element {
             {showFavorites && (
               <div className="group flex items-center gap-0.5 my-0.5">
                 <button
+                  data-tv-cat
                   className={`nav-item flex-1 min-w-0 text-left ${activeGroup === 'Favorites' ? 'active' : ''}`}
                   style={{ paddingLeft: 10, fontSize: 12 }}
-                  onClick={() => setActiveGroup(activeGroup === 'Favorites' ? null : 'Favorites')}
+                  onKeyDown={tvCatKeyDown}
+                  onClick={() => {
+                    const next = activeGroup !== 'Favorites'
+                    setActiveGroup(next ? 'Favorites' : null)
+                    setCatCollapsed(next)
+                  }}
                 >
                   <svg width="11" height="11" viewBox="0 0 11 11" fill={activeGroup === 'Favorites' ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="1.4" className="flex-shrink-0">
                     <path d="M5.5 1l1.2 2.5 2.8.4-2 2 .5 2.8L5.5 7.4l-2.5 1.3.5-2.8-2-2 2.8-.4L5.5 1z"/>
@@ -415,17 +567,20 @@ export default function PlaylistEditor(): JSX.Element {
                 const isActive = activeGroup === g
                 const isEditingGroup = groupEditing === g
                 return (
-                  <Reorder.Item
-                    key={g}
-                    value={g}
-                    style={{ listStyle: 'none' }}
-                    whileDrag={{ scale: 1.02, boxShadow: '0 4px 16px rgba(0,0,0,0.3)', zIndex: 50, borderRadius: 8 }}
-                  >
+                  <LongPressReorderItem key={g} value={g}>
                     <div className="group relative flex items-center my-0.5">
                       <button
+                        data-tv-cat
                         className={`nav-item w-full text-left ${isActive ? 'active' : ''}`}
                         style={{ paddingLeft: 10, fontSize: 12 }}
-                        onClick={() => { if (!isEditingGroup) setActiveGroup(isActive ? null : g) }}
+                        onKeyDown={tvCatKeyDown}
+                        onClick={() => {
+                          if (!isEditingGroup) {
+                            const willSelect = !isActive
+                            setActiveGroup(willSelect ? g : null)
+                            setCatCollapsed(willSelect)
+                          }
+                        }}
                       >
                         <svg width="11" height="11" viewBox="0 0 11 11" fill="none" stroke="currentColor" strokeWidth="1.4" className="flex-shrink-0">
                           <path d="M1 2.5h9M1 5.5h6.5M1 8.5h7.5"/>
@@ -503,11 +658,12 @@ export default function PlaylistEditor(): JSX.Element {
                         </button>
                       </div>{/* end category-actions */}
                     </div>
-                  </Reorder.Item>
+                  </LongPressReorderItem>
                 )
               })}
             </Reorder.Group>
           </div>
+        </>)}{/* end !catCollapsed full panel */}
         </div>
 
         {/* Right: channel list */}
@@ -547,17 +703,16 @@ export default function PlaylistEditor(): JSX.Element {
                 style={{ listStyle: 'none', padding: 0, margin: 0, height: '100%' }}
               >
                 {filteredChannels.map((ch) => (
-                  <Reorder.Item
+                  <LongPressReorderItem
                     key={ch.id}
                     value={ch}
-                    style={{ listStyle: 'none' }}
                     whileDrag={{ scale: 1.01, boxShadow: '0 4px 16px rgba(0,0,0,0.25)', zIndex: 50 }}
                   >
                     <ChannelEditorRow
                       channel={ch}
                       data={itemData}
                     />
-                  </Reorder.Item>
+                  </LongPressReorderItem>
                 ))}
               </Reorder.Group>
             ) : (

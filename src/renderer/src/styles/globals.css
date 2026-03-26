@@ -394,3 +394,123 @@ body,
   outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
+
+/* ─── TV Mode (Android TV / Google TV / Fire TV) ───────────────────────────
+ * Applied via document.body.classList.add('tv-mode') from MainActivity.java
+ * when UiModeManager reports UI_MODE_TYPE_TELEVISION.
+ *
+ * Design principles:
+ *   - 10-foot UI: legible from 3m on a 55"+ screen
+ *   - No hover: replace :hover with :focus-visible throughout
+ *   - High-contrast focus ring: thick glow ring visible across the room
+ *   - Hide scrollbars: TV users navigate with D-pad, not drag
+ *   - ROLLBACK FONT SIZE: change 14px back to 18px to restore original scale
+ * ───────────────────────────────────────────────────────────────────────── */
+.tv-mode {
+  font-size: 14px; /* ROLLBACK: change to 18px */
+}
+
+/* TV global focus ring — must be unmistakably visible from 3m */
+.tv-mode *:focus {
+  outline: none;
+}
+.tv-mode *:focus-visible {
+  outline: 3px solid var(--accent);
+  outline-offset: 1px;
+  border-radius: 6px;
+  box-shadow: 0 0 0 3px rgba(107, 159, 212, 0.35);
+}
+
+/* TV interactive element sizing — nav items and standalone buttons only.
+ * NOTE: do NOT include [tabindex="0"] here — channel rows use tabindex="0"
+ * and are inside react-window virtual lists with fixed pixel slot sizes.
+ * Enforcing min-height on them causes rows to overflow their slots and
+ * visually cover adjacent rows with the focus ring. */
+.tv-mode button,
+.tv-mode [role="button"] {
+  min-height: 44px;
+}
+
+/* TV safe zone — applied on the root app container via inline style in App.tsx */
+.tv-safe {
+  padding: 60px 90px;
+}
+
+/* TV channel row: compact — react-window controls the height via itemSize,
+ * so we must NOT set min-height here or rows will overflow their slots. */
+.tv-mode .channel-row {
+  padding: 6px 10px;
+  border-radius: 8px;
+  font-size: 0.9rem;
+  min-height: unset;
+}
+
+/* TV nav item */
+.tv-mode .nav-item {
+  padding: 10px 14px;
+  font-size: 0.95rem;
+  border-radius: 10px;
+  min-height: 44px;
+}
+
+/* On TV, replace :hover with :focus-visible for nav items */
+.tv-mode .nav-item:hover {
+  background: transparent;
+  color: var(--text-secondary);
+}
+.tv-mode .nav-item:focus-visible {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text-primary);
+}
+.dark.tv-mode .nav-item:focus-visible {
+  background: rgba(255, 255, 255, 0.07);
+}
+
+/* TV channel row: replace :hover with :focus-visible */
+.tv-mode .channel-row:hover {
+  background: transparent;
+  box-shadow: none;
+}
+.tv-mode .channel-row:focus-visible {
+  background: rgba(255, 255, 255, 0.08);
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+  box-shadow: none;
+}
+.dark.tv-mode .channel-row:focus-visible {
+  background: rgba(255, 255, 255, 0.06);
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+  box-shadow: none;
+}
+
+/* TV: suppress scrollbars — D-pad navigation handles scrolling */
+.tv-mode ::-webkit-scrollbar {
+  display: none;
+}
+
+/* TV: suppress framer-motion animations for performance on weak TV hardware */
+@media (prefers-reduced-motion: reduce) {
+  .tv-mode * {
+    animation-duration: 0.001ms !important;
+    transition-duration: 0.001ms !important;
+  }
+}
+
+/* TV typography: larger text throughout */
+.tv-mode .badge {
+  font-size: 0.75rem;
+  padding: 4px 10px;
+}
+
+/* TV always-visible category actions */
+.tv-mode .category-actions {
+  opacity: 1 !important;
+}
+
+/* TV input: larger target */
+.tv-mode .input {
+  font-size: 1rem;
+  padding: 12px 16px;
+  min-height: 52px;
+}

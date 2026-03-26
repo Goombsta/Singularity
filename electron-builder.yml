@@ -45,6 +45,7 @@ mac:
   entitlementsInherit: build/entitlements.mac.plist
 dmg:
   title: Singularity
+  artifactName: Singularity.dmg
   window:
     width: 540
     height: 380

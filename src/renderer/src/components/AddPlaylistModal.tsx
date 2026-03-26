@@ -1,8 +1,9 @@
-import { useState } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { usePlaylistStore } from '../stores/playlistStore'
 
 type Mode = 'url' | 'file' | 'xtream' | 'stalker'
+const MODES: Mode[] = ['url', 'file', 'xtream', 'stalker']
 
 interface Props {
   onClose: () => void
@@ -12,6 +13,9 @@ export default function AddPlaylistModal({ onClose }: Props): JSX.Element {
   const [mode, setMode] = useState<Mode>('url')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const isAndroid = window.api?.platform === 'android'
+  const isTV = isAndroid && !!(window as unknown as { __IS_TV__?: boolean }).__IS_TV__
+  const modalRef = useRef<HTMLDivElement>(null)
 
   // URL form
   const [name, setName] = useState('')
@@ -28,6 +32,55 @@ export default function AddPlaylistModal({ onClose }: Props): JSX.Element {
   const [stalkerMac, setStalkerMac] = useState('')
 
   const { addM3UFromUrl, addM3UFromFile, addXtream, addStalker } = usePlaylistStore()
+
+  // TV: when mode changes, focus the newly-active tab button (not the first element)
+  useEffect(() => {
+    if (!isTV) return
+    const activeTab = modalRef.current?.querySelector<HTMLElement>(`[data-mode="${mode}"]`)
+    activeTab?.focus()
+  }, [isTV, mode])
+
+  // TV: close on hardware Back / Escape
+  useEffect(() => {
+    if (!isTV) return
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' || e.key === 'Back') onClose()
+    }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [isTV, onClose])
+
+  // TV D-pad: ArrowDown/Up navigate INPUT/SELECT fields only (NOT mode tabs).
+  // Mode tabs handle their own ArrowLeft/Right and ArrowDown via onKeyDown + stopPropagation.
+  const handleModalKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    if (!isTV) return
+    const active = document.activeElement as HTMLElement
+    // Let range slider handle left/right natively
+    if ((active as HTMLInputElement)?.type === 'range' && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) return
+    // Mode tabs handle their own keys — don't double-process
+    if (active?.dataset?.mode) return
+
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault()
+      // Only include non-tab interactive elements
+      const focusable = Array.from(
+        modalRef.current?.querySelectorAll<HTMLElement>(
+          'input, select, button:not([disabled]):not([data-mode])'
+        ) || []
+      )
+      const idx = focusable.indexOf(active)
+      if (e.key === 'ArrowDown') {
+        focusable[Math.min(idx + 1, focusable.length - 1)]?.focus()
+      } else {
+        if (idx <= 0) {
+          // ArrowUp from first field — jump back to the active mode tab
+          modalRef.current?.querySelector<HTMLElement>(`[data-mode="${mode}"]`)?.focus()
+        } else {
+          focusable[idx - 1]?.focus()
+        }
+      }
+    }
+  }
 
   const handleSubmit = async () => {
     setError(null)
@@ -60,12 +113,14 @@ export default function AddPlaylistModal({ onClose }: Props): JSX.Element {
   return (
     <div className="overlay" onClick={onClose}>
       <motion.div
+        ref={modalRef}
         initial={{ scale: 0.94, opacity: 0, y: 8 }}
         animate={{ scale: 1, opacity: 1, y: 0 }}
         exit={{ scale: 0.94, opacity: 0, y: 8 }}
         transition={{ type: 'spring', stiffness: 400, damping: 32 }}
         className="neu-raised p-6 w-full max-w-md"
         onClick={(e) => e.stopPropagation()}
+        onKeyDown={handleModalKeyDown}
       >
         <h2
           className="text-xl font-bold text-metallic mb-1"
@@ -77,11 +132,13 @@ export default function AddPlaylistModal({ onClose }: Props): JSX.Element {
           Add an M3U playlist, Xtream Codes, or Stalker Portal account
         </p>
 
-        {/* Mode tabs */}
+        {/* Mode tabs — ArrowLeft/Right cycles modes on TV */}
         <div className="flex gap-1 mb-5 p-1 rounded-xl" style={{ background: 'var(--bg-surface)', boxShadow: 'var(--shadow-inset)' }}>
-          {(['url', 'file', 'xtream', 'stalker'] as Mode[]).map((m) => (
+          {MODES.map((m, i) => (
             <motion.button
               key={m}
+              data-mode={m}
+              tabIndex={0}
               className="flex-1 text-xs py-1.5 rounded-lg font-medium"
               style={{
                 background: mode === m ? 'rgba(255,255,255,0.8)' : 'transparent',
@@ -90,6 +147,25 @@ export default function AddPlaylistModal({ onClose }: Props): JSX.Element {
               }}
               onClick={() => setMode(m)}
               whileTap={{ scale: 0.97 }}
+              onKeyDown={(e) => {
+                if (!isTV) return
+                if (e.key === 'ArrowRight') {
+                  e.preventDefault(); e.stopPropagation()
+                  // setMode triggers useEffect([mode]) which focuses the new tab button
+                  setMode(MODES[Math.min(i + 1, MODES.length - 1)])
+                } else if (e.key === 'ArrowLeft') {
+                  e.preventDefault(); e.stopPropagation()
+                  setMode(MODES[Math.max(i - 1, 0)])
+                } else if (e.key === 'ArrowDown' || e.key === 'Enter' || e.key === ' ') {
+                  // ArrowDown or select: activate this tab and jump to first input field
+                  e.preventDefault(); e.stopPropagation()
+                  if (e.key !== 'ArrowDown') setMode(m)
+                  requestAnimationFrame(() => {
+                    const firstField = modalRef.current?.querySelector<HTMLElement>('input, select')
+                    firstField?.focus()
+                  })
+                }
+              }}
             >
               {m === 'url' ? 'M3U URL' : m === 'file' ? 'Local File' : m === 'xtream' ? 'Xtream' : 'Stalker / MAC'}
             </motion.button>
