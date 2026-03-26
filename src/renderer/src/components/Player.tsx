@@ -5,6 +5,62 @@ import { usePlayerStore } from '../stores/playerStore'
 import PlayerControls from './PlayerControls'
 import { resolveChannelUrl } from '../utils/stalkerApi'
 
+// ─── Android HLS Loader ────────────────────────────────────────────────────
+// On Android, HLS.js XHR runs inside the WebView which enforces CORS. Cellular
+// carrier transparent proxies often strip Access-Control-Allow-Origin headers,
+// causing CORS failures that WiFi (direct connection, no proxy) doesn't hit.
+// Fix: route HLS.js requests through window.api.net.fetch → CapacitorHttp →
+// native OkHttp, which bypasses the WebView CORS stack entirely.
+function makeAndroidHlsLoader() {
+  function b64ToArrayBuffer(b64: string): ArrayBuffer {
+    const binary = atob(b64)
+    const bytes = new Uint8Array(binary.length)
+    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i)
+    return bytes.buffer
+  }
+
+  return class AndroidLoader {
+    private aborted = false
+    stats = {
+      aborted: false, loaded: 0, retry: 0, total: 0, chunkCount: 0, bwEstimate: 0,
+      loading: { start: 0, first: 0, end: 0 },
+      parsing: { start: 0, end: 0 },
+      buffering: { start: 0, first: 0, end: 0 },
+    }
+    context: unknown = null
+
+    load(context: { url: string; responseType: string }, _cfg: unknown, callbacks: {
+      onSuccess: (r: { url: string; data: string | ArrayBuffer }, s: unknown, c: unknown, n: unknown) => void
+      onError: (e: { code: number; text: string }, c: unknown, n: unknown, s: unknown) => void
+    }) {
+      this.aborted = false
+      this.context = context
+      const t0 = performance.now()
+      window.api.net.fetch(context.url).then((res: { data: string; status: number }) => {
+        if (this.aborted) return
+        if (res.status < 200 || res.status >= 300) {
+          callbacks.onError({ code: res.status, text: `HTTP ${res.status}` }, context, null, this.stats)
+          return
+        }
+        const buf = b64ToArrayBuffer(res.data)
+        const data: string | ArrayBuffer = context.responseType === 'arraybuffer'
+          ? buf
+          : new TextDecoder().decode(buf)
+        const t1 = performance.now()
+        const stats = { ...this.stats, loaded: buf.byteLength, total: buf.byteLength,
+          loading: { start: t0, first: t1, end: t1 } }
+        callbacks.onSuccess({ url: context.url, data }, stats, context, null)
+      }).catch((err: Error) => {
+        if (this.aborted) return
+        callbacks.onError({ code: 0, text: err?.message || 'Network error' }, context, null, this.stats)
+      })
+    }
+
+    abort() { this.aborted = true }
+    destroy() { this.aborted = true }
+  }
+}
+
 // ─── Series Episode Picker ─────────────────────────────────────────────────
 
 interface SeriesInfo {
@@ -318,9 +374,11 @@ export default function Player(): JSX.Element {
 
     if (isHls && Hls.isSupported()) {
       // ── HLS / TS playback via HLS.js ───────────────────────────
+      const isAndroid = window.api?.platform === 'android'
       const hls = new Hls({
         enableWorker: true,
-        lowLatencyMode: true,
+        // On Android use native HTTP loader to bypass WebView CORS (carrier proxy strips CORS headers on cellular)
+        ...(isAndroid ? { loader: makeAndroidHlsLoader() as unknown as typeof Hls.DefaultConfig.loader } : {}),
         backBufferLength: 30,
         maxBufferLength: 60,
         maxMaxBufferLength: 120,
@@ -331,6 +389,8 @@ export default function Player(): JSX.Element {
         levelLoadingTimeOut: 20000,
         levelLoadingMaxRetry: 3,
         fragLoadingTimeOut: 20000,
+        fragLoadingMaxRetry: 6,
+        fragLoadingRetryDelay: 2000,
       })
       hlsRef.current = hls
       hls.loadSource(effectiveUrl)
@@ -350,7 +410,8 @@ export default function Player(): JSX.Element {
         if (cancelled) return
         const level = hls.levels[hls.currentLevel]
         if (level) {
-          const h = level.height
+          // Many IPTV manifests omit RESOLUTION= and FRAME-RATE — fall back to video element
+          const h = level.height || video.videoHeight
           const qualityMap: [number, string][] = [[2160,'4K'],[1440,'1440p'],[1080,'1080p'],[720,'720p'],[480,'480p'],[360,'360p']]
           const quality = h ? (qualityMap.find(([t]) => h >= t)?.[1] ?? `${h}p`) : undefined
           const fps = level.frameRate ? `${Math.round(level.frameRate)}fps` : undefined
@@ -362,6 +423,24 @@ export default function Player(): JSX.Element {
           })
         }
       })
+
+      // Fallback: read resolution from video element once metadata is decoded.
+      // Fires even when the HLS manifest omits RESOLUTION= in EXT-X-STREAM-INF.
+      video.addEventListener('loadedmetadata', () => {
+        if (cancelled) return
+        const vh = video.videoHeight
+        if (!vh) return
+        const level = hls.levels[hls.currentLevel]
+        const qualityMap: [number, string][] = [[2160,'4K'],[1440,'1440p'],[1080,'1080p'],[720,'720p'],[480,'480p'],[360,'360p']]
+        const quality = qualityMap.find(([t]) => vh >= t)?.[1] ?? `${vh}p`
+        const fps = level?.frameRate ? `${Math.round(level.frameRate)}fps` : undefined
+        setStreamInfo({
+          codec: level?.videoCodec || 'H.264',
+          resolution: quality,
+          bitrate: level?.bitrate ? `${Math.round(level.bitrate / 1000)} Kbps` : undefined,
+          fps,
+        })
+      }, { once: true })
 
       hls.on(Hls.Events.ERROR, (_, data) => {
         if (cancelled || !data.fatal) return
