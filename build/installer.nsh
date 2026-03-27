@@ -1,9 +1,8 @@
 ; Singularity — custom NSIS installer logic
-; Always performs a fresh install:
-;   1. Silently kills any running Singularity instance
-;   2. Silently uninstalls any existing version
-;   3. Clears registry keys so electron-builder does not double-uninstall
-;
+; Performs a fresh install:
+;   1. Silently uninstalls any existing version
+;   2. Clears registry keys so electron-builder does not double-uninstall
+; Note: does NOT kill the running app — user closes it manually before installing.
 ; All code guarded with !ifndef BUILD_UNINSTALLER to prevent NSIS
 ; warning-as-error failures during the uninstaller build pass.
 
@@ -19,10 +18,6 @@
 ; ── customInit — runs in .onInit, before any installer UI ────────────────────
 !macro customInit
   !ifndef BUILD_UNINSTALLER
-
-    ; ── Kill any running Singularity instance ─────────────────────────────────
-    nsExec::ExecToLog 'taskkill /F /IM "Singularity.exe" /T'
-    Sleep 800
 
     ; ── Detect existing installation ─────────────────────────────────────────
     ReadRegStr $R0 HKCU \

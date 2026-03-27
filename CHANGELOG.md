@@ -4,6 +4,18 @@
 
 ---
 
+## v1.4.1
+
+### Changes
+
+#### 1 — Update flow: installer opens, app stays running
+- Removed auto-kill: Singularity no longer closes when the installer launches
+- Removed `taskkill` from `installer.nsh` — the installer no longer force-kills the running app
+- User manually closes Singularity before clicking Install in the wizard
+- Installer window opens in the foreground via `spawn` (unchanged from v1.4.0)
+
+---
+
 ## v1.4.0
 
 ### Bug Fixes

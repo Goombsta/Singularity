@@ -297,10 +297,9 @@ export function registerIpcHandlers(): void {
       if (process.platform === 'win32') {
         // spawn directly so the installer window surfaces in the foreground.
         // shell.openPath (ShellExecute) can silently fail to bring the window up.
-        // Quit after 1s so Electron exits cleanly before NSIS's taskkill fires.
+        // App stays open — user closes it manually before clicking Install.
         const child = spawn(destPath, [], { detached: true, stdio: 'ignore', windowsHide: false })
         child.unref()
-        setTimeout(() => app.quit(), 1000)
       } else {
         const errMsg = await shell.openPath(destPath)
         if (errMsg) return { error: errMsg }
