@@ -4,6 +4,17 @@
 
 ---
 
+## v1.3.9
+
+### Improvements
+
+#### 1 — Update download confirmed working; dev testing shim added
+- Confirmed via dev-mode test: 89 MB installer downloads successfully end-to-end
+- In dev mode (`app.isPackaged === false`) the installer is not launched (would kill the dev server); a native dialog shows the downloaded file path instead
+- Added `console.error` logging in renderer when download returns an error
+
+---
+
 ## v1.3.8
 
 ### Bug Fixes

@@ -283,6 +283,17 @@ export function registerIpcHandlers(): void {
         file.on('error', (err) => { file.close(); unlink(destPath, () => {}); reject(err) })
       })
 
+      if (!app.isPackaged) {
+        // Dev mode: launching the installer would kill the dev server. Show path instead.
+        await dialog.showMessageBox({
+          type: 'info',
+          title: 'Dev: Download complete',
+          message: `File saved to:\n${destPath}\n\nInstaller would launch here in production.`,
+          buttons: ['OK'],
+        })
+        return { success: true }
+      }
+
       // shell.openPath hands the file to the OS; NSIS installer.nsh handles killing the app
       const errMsg = await shell.openPath(destPath)
       if (errMsg) return { error: errMsg }

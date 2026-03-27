@@ -40,6 +40,7 @@ export default function Settings(): JSX.Element {
     if (!url) return
     setDownloadState('downloading')
     const result = await window.api.updater.download(url) as { success?: boolean; error?: string }
+    if (result?.error) console.error('[updater] download error:', result.error)
     setDownloadState(result?.success ? 'done' : 'error')
   }, [])
 
