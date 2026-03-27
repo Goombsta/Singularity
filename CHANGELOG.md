@@ -4,6 +4,19 @@
 
 ---
 
+## v1.4.0
+
+### Bug Fixes
+
+#### 1 — Installer now launches correctly and shows its window
+- Replaced `shell.openPath` with `spawn` (direct process launch) on Windows
+- `shell.openPath` uses ShellExecute with the default verb — the installer process started but its window never surfaced in the foreground, causing it to silently do nothing visible
+- `spawn` with `windowsHide: false` launches the installer as its own visible process
+- Electron now quits cleanly after 1 second so NSIS's `taskkill` step is a no-op and the installer runs unimpeded in the foreground
+- macOS continues to use `shell.openPath` (correct behavior for `.dmg`)
+
+---
+
 ## v1.3.9
 
 ### Improvements

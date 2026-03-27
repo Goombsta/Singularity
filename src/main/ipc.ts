@@ -294,9 +294,17 @@ export function registerIpcHandlers(): void {
         return { success: true }
       }
 
-      // shell.openPath hands the file to the OS; NSIS installer.nsh handles killing the app
-      const errMsg = await shell.openPath(destPath)
-      if (errMsg) return { error: errMsg }
+      if (process.platform === 'win32') {
+        // spawn directly so the installer window surfaces in the foreground.
+        // shell.openPath (ShellExecute) can silently fail to bring the window up.
+        // Quit after 1s so Electron exits cleanly before NSIS's taskkill fires.
+        const child = spawn(destPath, [], { detached: true, stdio: 'ignore', windowsHide: false })
+        child.unref()
+        setTimeout(() => app.quit(), 1000)
+      } else {
+        const errMsg = await shell.openPath(destPath)
+        if (errMsg) return { error: errMsg }
+      }
       return { success: true }
     } catch (err) {
       return { error: String(err) }
