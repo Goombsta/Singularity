@@ -246,29 +246,41 @@ export function registerIpcHandlers(): void {
     })
   })
 
-  // Download a platform-specific installer to temp dir and run it via shell.openPath
+  // Download a platform-specific installer to temp dir and run it via shell.openPath.
+  // Follows HTTP redirects (GitHub release asset URLs redirect to CDN).
   ipcMain.handle('updater:download', async (_event, url: string) => {
     if (!isSafeUrl(url)) return { error: 'Blocked URL' }
-    const fileName = url.split('/').pop() ?? 'Singularity-update'
+    const fileName = url.split('/').pop()?.split('?')[0] ?? 'Singularity-update'
     const destPath = join(app.getPath('temp'), fileName)
 
+    const fetchWithRedirects = (reqUrl: string, redirectsLeft = 10): Promise<import('http').IncomingMessage> =>
+      new Promise((resolve, reject) => {
+        https.get(reqUrl, { headers: { 'User-Agent': 'Singularity-IPTV' } }, (res) => {
+          if (res.statusCode && res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+            res.resume()
+            if (redirectsLeft <= 0) { reject(new Error('Too many redirects')); return }
+            fetchWithRedirects(res.headers.location, redirectsLeft - 1).then(resolve, reject)
+          } else {
+            resolve(res)
+          }
+        }).on('error', reject)
+      })
+
     try {
+      const res = await fetchWithRedirects(url)
+      if (res.statusCode !== 200) return { error: `HTTP ${res.statusCode}` }
+
       await new Promise<void>((resolve, reject) => {
         const file = createWriteStream(destPath)
-        https.get(url, (res) => {
-          if (res.statusCode !== 200) {
-            file.close()
-            unlink(destPath, () => {})
-            reject(new Error(`HTTP ${res.statusCode}`))
-            return
-          }
-          res.pipe(file)
-          file.on('finish', () => { file.close(); resolve() })
-          file.on('error', (err) => { file.close(); unlink(destPath, () => {}); reject(err) })
-        }).on('error', (err) => { file.close(); unlink(destPath, () => {}); reject(err) })
+        res.pipe(file)
+        file.on('finish', () => { file.close(); resolve() })
+        file.on('error', (err) => { file.close(); unlink(destPath, () => {}); reject(err) })
       })
+
+      // Quit before launching installer so it can replace app files cleanly
       const errMsg = await shell.openPath(destPath)
       if (errMsg) return { error: errMsg }
+      app.quit()
       return { success: true }
     } catch (err) {
       return { error: String(err) }

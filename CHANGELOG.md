@@ -4,6 +4,18 @@
 
 ---
 
+## v1.3.7
+
+### Bug Fixes
+
+#### 1 — Check for Updates: download no longer crashes the app
+- Fixed crash caused by `https.get` not following HTTP redirects (GitHub asset URLs redirect to CDN)
+- Download handler now follows up to 10 redirects before failing
+- Asset download URL is now sourced directly from the GitHub Releases API response (`browser_download_url`) — no longer relies on a static external URL
+- App calls `app.quit()` before launching the installer so it closes cleanly instead of being force-killed by NSIS
+
+---
+
 ## v1.3.6
 
 ### Features & Improvements

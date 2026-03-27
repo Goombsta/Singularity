@@ -12,10 +12,10 @@ const version = __APP_VERSION__
 // Leave empty to disable. Update checks hit the public GitHub Releases API — no auth needed.
 const GITHUB_REPO = 'Goombsta/Singularity'
 
-const PLATFORM_DOWNLOAD_URLS: Record<string, string> = {
-  win32:   'https://www.singularitytv.app/downloads/Singularity.Setup.exe',
-  darwin:  'https://www.singularitytv.app/downloads/Singularity.dmg',
-  android: 'https://www.singularitytv.app/downloads/Singularity.apk',
+// Filename of the release asset for each platform (must match electron-builder output names)
+const PLATFORM_ASSET_NAMES: Record<string, string> = {
+  win32:   'Singularity.Setup.exe',
+  darwin:  'Singularity.dmg',
 }
 
 type Tab = 'general' | 'playlists' | 'playback' | 'external' | 'cache' | 'about'
@@ -31,20 +31,21 @@ export default function Settings(): JSX.Element {
   const { load: loadEpg, clear: clearEpg, lastUpdated } = useEpgStore()
   const [showAddPlaylist, setShowAddPlaylist] = useState(false)
   const [latestRelease, setLatestRelease] = useState<string | null>(null)
+  const [downloadUrl, setDownloadUrl] = useState<string | null>(null)
   const [checkingUpdates, setCheckingUpdates] = useState(false)
   const [updateChecked, setUpdateChecked] = useState(false)
   const [downloadState, setDownloadState] = useState<'idle' | 'downloading' | 'done' | 'error'>('idle')
 
   const downloadUpdate = useCallback(async () => {
-    const url = PLATFORM_DOWNLOAD_URLS[window.api?.platform ?? '']
-    if (!url) return
+    if (!downloadUrl) return
     setDownloadState('downloading')
-    const result = await window.api.updater.download(url) as { success?: boolean; error?: string }
+    const result = await window.api.updater.download(downloadUrl) as { success?: boolean; error?: string }
     setDownloadState(result?.success ? 'done' : 'error')
-  }, [])
+  }, [downloadUrl])
 
   const checkForUpdates = useCallback(async () => {
     setDownloadState('idle')
+    setDownloadUrl(null)
     setCheckingUpdates(true)
     setLatestRelease(null)
     try {
@@ -54,8 +55,15 @@ export default function Settings(): JSX.Element {
         { headers: { 'User-Agent': 'Singularity-IPTV' } }
       ) as { data?: string; status?: number; error?: string }
       if (result.error || !result.data) throw new Error(result.error || 'No data')
-      const json = JSON.parse(atob(result.data)) as { tag_name?: string }
+      const json = JSON.parse(atob(result.data)) as {
+        tag_name?: string
+        assets?: Array<{ name: string; browser_download_url: string }>
+      }
       setLatestRelease((json?.tag_name ?? '').replace(/^v/, '') || null)
+      // Find the asset matching this platform and store its direct download URL
+      const targetName = PLATFORM_ASSET_NAMES[window.api?.platform ?? '']
+      const asset = targetName ? json.assets?.find(a => a.name === targetName) : undefined
+      setDownloadUrl(asset?.browser_download_url ?? null)
     } catch {
       setLatestRelease(null)
     } finally {
@@ -71,7 +79,7 @@ export default function Settings(): JSX.Element {
     { id: 'general', label: 'General' },
     { id: 'playlists', label: 'Playlists' },
     { id: 'playback', label: 'Playback' },
-    ...(!isAndroid ? [{ id: 'external' as Tab, label: 'External Players' }] : []),
+    { id: 'external', label: 'External Players' },
     { id: 'cache', label: 'Cache' },
     { id: 'about', label: 'About' },
   ]
@@ -128,11 +136,49 @@ export default function Settings(): JSX.Element {
         style={{ outline: 'none' }}
         onKeyDown={(e) => {
           if (!isTV) return
-          if (e.key === 'ArrowDown') { e.preventDefault(); contentRef.current?.scrollBy({ top: 80, behavior: 'smooth' }) }
-          else if (e.key === 'ArrowUp') { e.preventDefault(); contentRef.current?.scrollBy({ top: -80, behavior: 'smooth' }) }
-          else if (e.key === 'ArrowLeft') {
+          if (e.key === 'ArrowLeft' && e.target === contentRef.current) {
             e.preventDefault()
             // Return focus to the settings tab list
+            const firstTab = tabListRef.current?.querySelector<HTMLElement>('button')
+            firstTab?.focus()
+            return
+          }
+          // When a child element is focused, ArrowDown/Up move between focusable children
+          // When the container itself is focused, scroll the content
+          const focusables = Array.from(
+            contentRef.current?.querySelectorAll<HTMLElement>(
+              'button, input, select, textarea, [tabindex="0"]'
+            ) ?? []
+          ).filter((el) => !el.closest('[aria-hidden]'))
+          const activeEl = document.activeElement as HTMLElement
+          const isChildFocused = contentRef.current?.contains(activeEl) && activeEl !== contentRef.current
+          if (e.key === 'ArrowDown') {
+            e.preventDefault()
+            if (isChildFocused) {
+              const idx = focusables.indexOf(activeEl)
+              focusables[idx + 1]?.focus()
+              focusables[idx + 1]?.scrollIntoView({ block: 'nearest' })
+            } else {
+              contentRef.current?.scrollBy({ top: 80, behavior: 'smooth' })
+            }
+          } else if (e.key === 'ArrowUp') {
+            e.preventDefault()
+            if (isChildFocused) {
+              const idx = focusables.indexOf(activeEl)
+              if (idx === 0) {
+                // At top of content — return focus to tab list
+                const activeTab = tabListRef.current?.querySelector<HTMLElement>('button.active') ??
+                  tabListRef.current?.querySelector<HTMLElement>('button')
+                activeTab?.focus()
+              } else {
+                focusables[idx - 1]?.focus()
+                focusables[idx - 1]?.scrollIntoView({ block: 'nearest' })
+              }
+            } else {
+              contentRef.current?.scrollBy({ top: -80, behavior: 'smooth' })
+            }
+          } else if (e.key === 'ArrowLeft') {
+            e.preventDefault()
             const firstTab = tabListRef.current?.querySelector<HTMLElement>('button')
             firstTab?.focus()
           }
@@ -340,6 +386,12 @@ export default function Settings(): JSX.Element {
               External Players
             </h2>
 
+            {isAndroid && (
+              <p className="text-xs p-3 rounded-lg" style={{ background: 'rgba(91,127,166,0.10)', color: 'var(--text-secondary)', border: '1px solid var(--border-hard)' }}>
+                On Android, tap <strong style={{ color: 'var(--text-primary)' }}>Auto-detect Players</strong> to find installed media apps (VLC, MX Player, etc.). Set one as default to skip the system chooser when opening streams.
+              </p>
+            )}
+
             {settings.externalPlayers.length > 0 ? (
               <div className="space-y-2">
                 {settings.externalPlayers.map((p, i) => (
@@ -348,13 +400,18 @@ export default function Settings(): JSX.Element {
                       <p className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>{p.name}</p>
                       <p className="text-xs truncate" style={{ color: 'var(--text-secondary)' }}>{p.path}</p>
                     </div>
-                    <input
-                      type="radio"
-                      name="defaultPlayer"
-                      checked={settings.defaultExternalPlayer === p.name}
-                      onChange={() => update({ defaultExternalPlayer: p.name })}
-                    />
-                    <label className="text-xs" style={{ color: 'var(--text-secondary)' }}>Default</label>
+                    <motion.button
+                      className="btn text-xs px-2 py-1 rounded-lg"
+                      style={{
+                        background: settings.defaultExternalPlayer === p.name ? 'rgba(91,127,166,0.18)' : 'var(--bg-base)',
+                        color: settings.defaultExternalPlayer === p.name ? 'var(--accent)' : 'var(--text-secondary)',
+                        border: '1px solid var(--border-hard)',
+                      }}
+                      whileTap={{ scale: 0.97 }}
+                      onClick={() => update({ defaultExternalPlayer: settings.defaultExternalPlayer === p.name ? undefined : p.name })}
+                    >
+                      {settings.defaultExternalPlayer === p.name ? '✓ Default' : 'Set Default'}
+                    </motion.button>
                     <motion.button
                       className="btn text-xs px-2 py-1 rounded-lg"
                       style={{ background: 'rgba(224,82,82,0.1)', color: 'var(--danger)' }}
@@ -368,7 +425,7 @@ export default function Settings(): JSX.Element {
               </div>
             ) : (
               <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
-                No external players detected. Add one manually below.
+                No external players detected. {isAndroid ? 'Tap Auto-detect to find installed media apps.' : 'Add one manually below.'}
               </p>
             )}
 
@@ -382,7 +439,7 @@ export default function Settings(): JSX.Element {
               />
               <input
                 className="input flex-1 text-sm"
-                placeholder="Path to executable..."
+                placeholder={isAndroid ? 'Package name (e.g. org.videolan.vlc)' : 'Path to executable...'}
                 value={customPlayerPath}
                 onChange={(e) => setCustomPlayerPath(e.target.value)}
               />
@@ -509,7 +566,7 @@ export default function Settings(): JSX.Element {
               <div className="flex justify-between items-center" style={{ borderTop: '1px solid var(--border-hard)', paddingTop: 8, marginTop: 4 }}>
                 <span className="text-sm" style={{ color: 'var(--text-secondary)' }}>Updates</span>
                 <div className="flex items-center gap-2">
-                  {updateChecked && !checkingUpdates && latestRelease && latestRelease !== version && (
+                  {updateChecked && !checkingUpdates && latestRelease && latestRelease !== version && downloadUrl && (
                     <button
                       onClick={downloadState === 'downloading' || downloadState === 'done' ? undefined : downloadUpdate}
                       disabled={downloadState === 'downloading' || downloadState === 'done'}
