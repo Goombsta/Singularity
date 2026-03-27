@@ -4,6 +4,42 @@
 
 ---
 
+## v1.4.2
+
+### Features & Improvements
+
+#### 1 — EPG overlay (press `i` / `Info`)
+- Press **i** / **Info** while a channel is playing to show an inline EPG guide overlay with current and upcoming programs
+- Works on TV remote Info key, keyboard shortcut, and via a button in the player controls
+- Overlay dismissed by pressing the same key again or clicking outside
+
+#### 2 — Audio & subtitle track selection
+- HLS streams with multiple audio tracks now expose a track selector in the player controls
+- Subtitle/closed-caption tracks can be toggled on/off per stream
+- Track selections applied live without restarting the stream
+
+#### 3 — TV / D-pad navigation
+- Full arrow-key navigation in Multiview panels: channel select → volume slider → mute button
+- Extended auto-hide timer for TV controls (10 s on TV vs 4 s on mobile)
+- Series episode picker: D-pad navigation between season list and episode list, auto-focus on data load
+- Multiview: panel `onFocus` events trigger the controls overlay on TV remotes
+- TV fullscreen implemented via CSS `position:fixed` (WebView doesn't support `requestFullscreen`)
+- Error overlay auto-focuses the action button on TV so it's immediately actionable with Enter
+
+#### 4 — Android Back navigation history
+- Back button now returns to the previous view instead of always jumping to Live TV
+- Navigation history capped at 10 entries; each view change pushes to the stack
+
+### Bug Fixes
+
+#### 5 — EPG/channel logo fallback extended to EPG views
+- Channels missing a `tvg-logo` or with a broken URL now show the Singularity placeholder image in the EPG grid rows, EPG preview panel, and EPG overlay header (previously only applied in the channel list)
+
+#### 6 — External player on Android forwards channel name
+- Channel name passed as the `title` extra to VLC / MX Player so the app shows the correct channel name during playback
+
+---
+
 ## v1.4.1
 
 ### Changes
