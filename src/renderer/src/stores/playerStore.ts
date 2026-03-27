@@ -4,6 +4,18 @@ import type { CastDevice } from '../../../shared/castTypes'
 
 export type MultiviewLayout = '2h' | '2v' | '3' | '4'
 
+export interface AudioTrack {
+  id: number
+  name: string
+  lang: string
+}
+
+export interface SubtitleTrack {
+  id: number
+  name: string
+  lang: string
+}
+
 const HISTORY_MAX = 5
 
 interface PlayerStore extends PlayerState {
@@ -33,6 +45,16 @@ interface PlayerStore extends PlayerState {
   setPrimaryPanel: (panelId: string) => void
   togglePanelMute: (panelId: string) => void
   setPanelVolume: (panelId: string, volume: number) => void
+
+  // Audio / Subtitle tracks (populated from HLS.js after manifest loads)
+  audioTracks: AudioTrack[]
+  subtitleTracks: SubtitleTrack[]
+  activeAudioTrack: number       // HLS.js audioTrack index (-1 = default)
+  activeSubtitleTrack: number    // HLS.js subtitleTrack index (-1 = off)
+  setAudioTracks: (tracks: AudioTrack[]) => void
+  setSubtitleTracks: (tracks: SubtitleTrack[]) => void
+  setActiveAudioTrack: (id: number) => void
+  setActiveSubtitleTrack: (id: number) => void
 
   // Casting
   castDevices: CastDevice[]
@@ -69,6 +91,10 @@ export const usePlayerStore = create<PlayerStore>((set, get) => ({
   isMultiview: false,
   multiviewLayout: '4' as MultiviewLayout,
   recentChannels: [],
+  audioTracks: [],
+  subtitleTracks: [],
+  activeAudioTrack: -1,
+  activeSubtitleTrack: -1,
   castDevices: [],
   isCasting: false,
   castingDevice: null,
@@ -89,6 +115,11 @@ export const usePlayerStore = create<PlayerStore>((set, get) => ({
       streamInfo: {},
       currentTime: 0,
       recentChannels: newRecent,
+      // Reset tracks on every channel change — new stream may have different tracks
+      audioTracks: [],
+      subtitleTracks: [],
+      activeAudioTrack: -1,
+      activeSubtitleTrack: -1,
     })
   },
 
@@ -146,6 +177,11 @@ export const usePlayerStore = create<PlayerStore>((set, get) => ({
         p.id === panelId ? { ...p, volume, isMuted: volume === 0 } : p
       ),
     })),
+
+  setAudioTracks: (tracks) => set({ audioTracks: tracks }),
+  setSubtitleTracks: (tracks) => set({ subtitleTracks: tracks }),
+  setActiveAudioTrack: (id) => set({ activeAudioTrack: id }),
+  setActiveSubtitleTrack: (id) => set({ activeSubtitleTrack: id }),
 
   setCastDevices: (devices) => set({ castDevices: devices }),
 

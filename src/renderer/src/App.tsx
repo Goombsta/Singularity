@@ -44,24 +44,50 @@ export default function App(): JSX.Element {
   // Double-press back to exit (TV/Android)
   const [exitToast, setExitToast] = useState(false)
   const exitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // Navigation history — allows Back to return to the previous view rather than always live
+  const viewHistoryRef = useRef<SidebarView[]>([])
 
   // Android hardware back button — ref pattern keeps handler fresh without re-registering listener
   const backHandlerRef = useRef<() => void>(() => {})
   backHandlerRef.current = () => {
-    // Exit native browser fullscreen first (e.g. triggered outside our store)
+    // 1. Exit native browser fullscreen
     if (document.fullscreenElement) { document.exitFullscreen(); return }
+    // 2. Exit player fullscreen
     if (isFullscreen) { setFullscreen(false); return }
+    // 3. Exit multiview
     if (isMultiview) { toggleMultiview(); return }
-    if (view !== 'live') { handleViewChange('live'); return }
+    // 4. Clear category/group selection (sub-navigation within current view)
     if (activeGroup !== null) { setActiveGroup(null); return }
-    // Double-press back to exit — first press shows toast, second press minimizes
+    // 5. Pop view history — return to the view the user navigated from
+    const hist = viewHistoryRef.current
+    if (hist.length > 0) {
+      const prevView = hist[hist.length - 1]
+      viewHistoryRef.current = hist.slice(0, -1)
+      setView(prevView)
+      if (prevView === 'live') setFilterType('live')
+      else if (prevView === 'vod') setFilterType('vod')
+      else if (prevView === 'series') setFilterType('series')
+      else setFilterType('all')
+      if (isAndroid) setActiveGroup(null)
+      return
+    }
+    // 6. Fallback: go to live if not already there
+    if (view !== 'live') {
+      setView('live')
+      setFilterType('live')
+      if (isAndroid) setActiveGroup(null)
+      return
+    }
+    // 7. On live root: first press shows exit toast, second press minimizes
     if (!exitToast) {
       setExitToast(true)
       if (exitTimerRef.current) clearTimeout(exitTimerRef.current)
       exitTimerRef.current = setTimeout(() => setExitToast(false), 2000)
       return
     }
+    // 8. Confirmed exit — clear toast then move app to background
     if (exitTimerRef.current) clearTimeout(exitTimerRef.current)
+    setExitToast(false)
     window.api.window.minimize()
   }
   useEffect(() => {
@@ -120,10 +146,16 @@ export default function App(): JSX.Element {
     }
   }, [settings.epgUrls])
 
-  // Handle view change: set filterType and exit fullscreen/multiview if needed
+  // Handle view change: set filterType and push to navigation history
   const handleViewChange = useCallback(
     (newView: SidebarView) => {
-      setView(newView)
+      // Push the current view to history so Back can return here
+      setView((prev) => {
+        if (prev !== newView) {
+          viewHistoryRef.current = [...viewHistoryRef.current.slice(-9), prev] // cap at 10 entries
+        }
+        return newView
+      })
       // Map view → filter type
       if (newView === 'live') setFilterType('live')
       else if (newView === 'vod') setFilterType('vod')
@@ -132,7 +164,7 @@ export default function App(): JSX.Element {
       // Reset category selection when switching views (Android)
       if (isAndroid) setActiveGroup(null)
     },
-    [setFilterType, setActiveGroup]
+    [setFilterType, setActiveGroup, isAndroid]
   )
 
   // Re-show PiP whenever a new channel starts playing
@@ -504,7 +536,7 @@ export default function App(): JSX.Element {
                 </motion.div>
               ) : view === 'epg' ? (
                 <motion.div key="epg" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="h-full">
-                  <EPGView />
+                  <EPGView onGoLive={() => handleViewChange('live')} />
                 </motion.div>
               ) : view === 'editor' ? (
                 <motion.div key="editor" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="h-full">
@@ -617,7 +649,7 @@ export default function App(): JSX.Element {
                   exit={{ opacity: 0 }}
                   className="h-full"
                 >
-                  <EPGView />
+                  <EPGView onGoLive={() => handleViewChange('live')} />
                 </motion.div>
               ) : view === 'editor' ? (
                 <motion.div
@@ -718,7 +750,7 @@ export default function App(): JSX.Element {
                       exit={{ opacity: 0 }}
                       className="h-full"
                     >
-                      <EPGView />
+                      <EPGView onGoLive={() => handleViewChange('live')} />
                     </motion.div>
                   ) : view === 'editor' ? (
                     <motion.div

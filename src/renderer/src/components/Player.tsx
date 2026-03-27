@@ -3,6 +3,7 @@ import Hls from 'hls.js'
 import mpegts from 'mpegts.js'
 import { usePlayerStore } from '../stores/playerStore'
 import PlayerControls from './PlayerControls'
+import EPGOverlay from './EPGOverlay'
 import { resolveChannelUrl } from '../utils/stalkerApi'
 
 const STALL_TIMEOUT_MS = 10_000
@@ -28,14 +29,17 @@ function parseSeriesUrl(url: string): { base: string; username: string; password
   return { base: m[1], username: m[2], password: m[3], seriesId: m[4] }
 }
 
-function SeriesEpisodePicker({ channel, onEpisode }: {
+function SeriesEpisodePicker({ channel, onEpisode, isTV }: {
   channel: { name: string; url: string; logo?: string }
   onEpisode: (url: string, title: string) => void
+  isTV?: boolean
 }): JSX.Element {
   const [info, setInfo] = useState<SeriesInfo | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [activeSeason, setActiveSeason] = useState<string>('')
+  const seasonListRef = useRef<HTMLDivElement>(null)
+  const episodeListRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     const parsed = parseSeriesUrl(channel.url)
@@ -77,6 +81,13 @@ function SeriesEpisodePicker({ channel, onEpisode }: {
   const seasonKeys = info ? Object.keys(info.seasons).sort((a, b) => Number(a) - Number(b)) : []
   const episodes = (info && activeSeason) ? (info.seasons[activeSeason] || []) : []
 
+  // Auto-focus first season button on TV when data loads
+  useEffect(() => {
+    if (!isTV || !info) return
+    const firstBtn = seasonListRef.current?.querySelector<HTMLElement>('button')
+    firstBtn?.focus()
+  }, [isTV, info])
+
   return (
     <div className="flex flex-col h-full" style={{ background: 'var(--bg-base)' }}>
       {/* Header */}
@@ -109,13 +120,36 @@ function SeriesEpisodePicker({ channel, onEpisode }: {
       {info && !loading && (
         <div className="flex flex-1 overflow-hidden">
           {/* Season tabs */}
-          <div className="flex flex-col gap-1 p-3 flex-shrink-0" style={{ width: 120, borderRight: '1px solid var(--border-hard)' }}>
+          <div
+            ref={seasonListRef}
+            className="flex flex-col gap-1 p-3 flex-shrink-0"
+            style={{ width: 120, borderRight: '1px solid var(--border-hard)' }}
+          >
             <p className="text-xs font-semibold px-2 py-1 uppercase" style={{ letterSpacing: '0.08em', color: 'var(--text-secondary)' }}>Season</p>
-            {seasonKeys.map((s) => (
+            {seasonKeys.map((s, idx) => (
               <button
                 key={s}
+                tabIndex={0}
                 className={`nav-item w-full text-left text-sm ${activeSeason === s ? 'active' : ''}`}
                 onClick={() => setActiveSeason(s)}
+                onKeyDown={(e) => {
+                  if (!isTV) return
+                  if (e.key === 'ArrowDown') {
+                    e.preventDefault()
+                    const btns = Array.from(seasonListRef.current?.querySelectorAll<HTMLElement>('button') ?? [])
+                    btns[idx + 1]?.focus()
+                  } else if (e.key === 'ArrowUp') {
+                    e.preventDefault()
+                    const btns = Array.from(seasonListRef.current?.querySelectorAll<HTMLElement>('button') ?? [])
+                    btns[idx - 1]?.focus()
+                  } else if (e.key === 'ArrowRight') {
+                    e.preventDefault()
+                    episodeListRef.current?.querySelector<HTMLElement>('button')?.focus()
+                  } else if (e.key === 'ArrowLeft') {
+                    e.preventDefault()
+                    document.querySelector<HTMLElement>('[data-tv-content] [tabindex="0"]')?.focus()
+                  }
+                }}
               >
                 {s}
               </button>
@@ -123,13 +157,36 @@ function SeriesEpisodePicker({ channel, onEpisode }: {
           </div>
 
           {/* Episode list */}
-          <div className="flex-1 overflow-y-auto p-4">
+          <div ref={episodeListRef} className="flex-1 overflow-y-auto p-4">
             <div className="grid gap-2">
-              {episodes.map((ep) => (
+              {episodes.map((ep, idx) => (
                 <button
                   key={ep.id}
+                  tabIndex={0}
                   className="neu-raised p-3 text-left w-full rounded-xl hover:scale-[1.01] transition-transform"
                   onClick={() => onEpisode(ep.url, `${channel.name} — S${ep.season}E${ep.episodeNum}`)}
+                  onKeyDown={(e) => {
+                    if (!isTV) return
+                    if (e.key === 'ArrowDown') {
+                      e.preventDefault()
+                      const btns = Array.from(episodeListRef.current?.querySelectorAll<HTMLElement>('button') ?? [])
+                      btns[idx + 1]?.focus()
+                    } else if (e.key === 'ArrowUp') {
+                      e.preventDefault()
+                      if (idx === 0) {
+                        seasonListRef.current?.querySelector<HTMLElement>('button')?.focus()
+                      } else {
+                        const btns = Array.from(episodeListRef.current?.querySelectorAll<HTMLElement>('button') ?? [])
+                        btns[idx - 1]?.focus()
+                      }
+                    } else if (e.key === 'ArrowLeft') {
+                      e.preventDefault()
+                      // Return focus to the active season button
+                      const seasonBtns = Array.from(seasonListRef.current?.querySelectorAll<HTMLElement>('button') ?? [])
+                      const activeIdx = seasonKeys.indexOf(activeSeason)
+                      seasonBtns[activeIdx >= 0 ? activeIdx : 0]?.focus()
+                    }
+                  }}
                 >
                   <p className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>
                     E{ep.episodeNum} · {ep.title}
@@ -140,6 +197,41 @@ function SeriesEpisodePicker({ channel, onEpisode }: {
           </div>
         </div>
       )}
+    </div>
+  )
+}
+
+// ─── Error Overlay ──────────────────────────────────────────────────────────
+
+function ErrorOverlay({ error, isTV, onOpenExternal }: {
+  error: string
+  isTV: boolean
+  onOpenExternal: () => void
+}): JSX.Element {
+  const btnRef = useRef<HTMLButtonElement>(null)
+
+  // Auto-focus the button on TV so the user can act immediately
+  useEffect(() => {
+    if (isTV) btnRef.current?.focus()
+  }, [isTV])
+
+  return (
+    <div className="absolute inset-0 flex items-center justify-center">
+      <div className="glass rounded-2xl p-6 text-center" style={{ maxWidth: 340 }}>
+        <p className="font-semibold text-white mb-2">Playback Error</p>
+        <p className="text-sm mb-4" style={{ color: 'rgba(255,255,255,0.7)' }}>{error}</p>
+        <button
+          ref={btnRef}
+          tabIndex={0}
+          className="btn-primary btn text-xs px-3 py-1.5"
+          onClick={onOpenExternal}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onOpenExternal() }
+          }}
+        >
+          Open in External Player
+        </button>
+      </div>
     </div>
   )
 }
@@ -167,6 +259,7 @@ export default function Player(): JSX.Element {
   const isAndroid = window.api?.platform === 'android'
   const isTV = isAndroid && !!(window as unknown as { __IS_TV__?: boolean }).__IS_TV__
   const [playerFocused, setPlayerFocused] = useState(false)
+  const [showEpgOverlay, setShowEpgOverlay] = useState(false)
 
   const {
     url,
@@ -185,6 +278,10 @@ export default function Player(): JSX.Element {
     setFullscreen,
     pause: pausePlayer,
     resume: resumePlayer,
+    setAudioTracks,
+    setSubtitleTracks,
+    activeAudioTrack,
+    activeSubtitleTrack,
   } = usePlayerStore()
 
   // Subscribe to error state so we can react to format errors on Android
@@ -222,21 +319,25 @@ export default function Player(): JSX.Element {
   }, [isPlaying, isTV])
 
   // Fullscreen handler
+  // On TV, fullscreen is implemented via CSS position:fixed (WebView doesn't support
+  // requestFullscreen). On desktop/mobile, use the native browser Fullscreen API.
   useEffect(() => {
+    if (isTV) return
     const handler = () => {
       if (!document.fullscreenElement) setFullscreen(false)
     }
     document.addEventListener('fullscreenchange', handler)
     return () => document.removeEventListener('fullscreenchange', handler)
-  }, [setFullscreen])
+  }, [setFullscreen, isTV])
 
   useEffect(() => {
+    if (isTV) return // TV fullscreen handled via CSS position:fixed below
     if (isFullscreen && containerRef.current) {
       containerRef.current.requestFullscreen?.()
     } else if (!isFullscreen && document.fullscreenElement) {
       document.exitFullscreen?.()
     }
-  }, [isFullscreen])
+  }, [isFullscreen, isTV])
 
   // Volume / mute
   useEffect(() => {
@@ -244,6 +345,18 @@ export default function Player(): JSX.Element {
     videoRef.current.volume = volume
     videoRef.current.muted = isMuted
   }, [volume, isMuted])
+
+  // Audio track switching — applied to the live HLS.js instance when user changes selection
+  useEffect(() => {
+    if (!hlsRef.current || activeAudioTrack < 0) return
+    hlsRef.current.audioTrack = activeAudioTrack
+  }, [activeAudioTrack])
+
+  // Subtitle track switching — -1 means off (HLS.js uses -1 to disable subtitles)
+  useEffect(() => {
+    if (!hlsRef.current) return
+    hlsRef.current.subtitleTrack = activeSubtitleTrack
+  }, [activeSubtitleTrack])
 
   // Play/pause — only pause here; playing is started by the load effect.
   // Guard video.play() with readyState check to avoid AbortError when src isn't loaded yet.
@@ -369,6 +482,23 @@ export default function Player(): JSX.Element {
         if (cancelled) return
         setLoading(false)
         setIsLive(hls.levels?.[0]?.details?.live ?? true)
+
+        // Collect audio tracks (only meaningful if more than one)
+        const aTracks = (hls.audioTracks ?? []).map((t, i) => ({
+          id: i,
+          name: t.name || t.lang || `Audio ${i + 1}`,
+          lang: t.lang || '',
+        }))
+        setAudioTracks(aTracks)
+
+        // Collect subtitle/text tracks
+        const sTracks = (hls.subtitleTracks ?? []).map((t, i) => ({
+          id: i,
+          name: t.name || t.lang || `Subtitle ${i + 1}`,
+          lang: t.lang || '',
+        }))
+        setSubtitleTracks(sTracks)
+
         video.play().catch((e: Error) => {
           if (cancelled || e.name === 'AbortError') return
           setError(String(e))
@@ -672,6 +802,7 @@ export default function Player(): JSX.Element {
     return (
       <SeriesEpisodePicker
         channel={channel}
+        isTV={isTV}
         onEpisode={(epUrl, title) => {
           setEpisodeUrl(epUrl)
           setEpisodeTitle(title)
@@ -719,8 +850,19 @@ export default function Player(): JSX.Element {
       onDoubleClick={() => setFullscreen(!isFullscreen)}
       onFocus={() => { setPlayerFocused(true); resetControlsTimer() }}
       onBlur={() => setPlayerFocused(false)}
-      style={{ cursor: showControls ? 'default' : 'none', outline: 'none' }}
+      style={{
+        cursor: showControls ? 'default' : 'none',
+        outline: 'none',
+        // TV: fullscreen = cover viewport via CSS (WebView doesn't support requestFullscreen)
+        ...(isTV && isFullscreen ? { position: 'fixed', inset: 0, zIndex: 9999 } : {}),
+      }}
       onKeyDown={(e) => {
+        // i / Info key → toggle EPG overlay (works on both TV and desktop)
+        if ((e.key === 'i' || e.key === 'I' || e.key === 'Info') && e.target === e.currentTarget) {
+          e.preventDefault()
+          setShowEpgOverlay((v) => !v)
+          return
+        }
         if (!isTV) return
         // Enter / Space → play/pause toggle
         if ((e.key === 'Enter' || e.key === ' ') && e.target === e.currentTarget) {
@@ -787,25 +929,24 @@ export default function Player(): JSX.Element {
       )}
 
       {/* Error */}
-      {usePlayerStore.getState().error && (
-        <div className="absolute inset-0 flex items-center justify-center">
-          <div className="glass rounded-2xl p-6 text-center" style={{ maxWidth: 340 }}>
-            <p className="font-semibold text-white mb-2">Playback Error</p>
-            <p className="text-sm mb-4" style={{ color: 'rgba(255,255,255,0.7)' }}>
-              {usePlayerStore.getState().error}
-            </p>
-            <button
-              className="btn-primary btn text-xs px-3 py-1.5"
-              onClick={openInExternal}
-            >
-              Open in External Player
-            </button>
-          </div>
-        </div>
+      {storeError && (
+        <ErrorOverlay error={storeError} isTV={isTV} onOpenExternal={openInExternal} />
       )}
 
+      {/* EPG overlay — TV Guide panel, toggled by pressing i / Info */}
+      <EPGOverlay
+        show={showEpgOverlay}
+        onDismiss={() => setShowEpgOverlay(false)}
+        channel={channel}
+        isTV={isTV}
+      />
+
       {/* Controls overlay — always visible on TV (D-pad must be able to reach them) */}
-      <PlayerControls visible={showControls || playerFocused} videoRef={videoRef} />
+      <PlayerControls
+        visible={showControls || playerFocused}
+        videoRef={videoRef}
+        onToggleEpgOverlay={() => setShowEpgOverlay((v) => !v)}
+      />
     </div>
   )
 }

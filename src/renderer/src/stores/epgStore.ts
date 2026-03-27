@@ -51,9 +51,16 @@ export const useEpgStore = create<EpgStore>((set, get) => ({
         const result = await window.api.net.fetch(url)
         if (result.status !== 200) throw new Error(`HTTP ${result.status}`)
 
-        const isGzip = url.endsWith('.gz') || url.includes('.xml.gz')
+        // Detect gzip by checking actual magic bytes (0x1f 0x8b) rather than URL extension.
+        // Android's HTTP stack (CapacitorHttp) auto-decompresses gzip responses, so a URL
+        // ending in .gz may already be plain XML by the time it reaches JS. Trusting the URL
+        // extension alone causes double-decompression failures. We check the first two decoded
+        // bytes instead — if they are the gzip magic bytes we decompress, otherwise treat as text.
+        const firstThreeChars = result.data.substring(0, 4) // 4 base64 chars → 3 bytes
+        const firstBytes = atob(firstThreeChars.padEnd(4, '='))
+        const isActuallyGzip = firstBytes.charCodeAt(0) === 0x1f && firstBytes.charCodeAt(1) === 0x8b
 
-        if (isGzip) {
+        if (isActuallyGzip) {
           xmlText = await base64GzipToUtf8(result.data)
         } else {
           xmlText = base64ToUtf8(result.data)

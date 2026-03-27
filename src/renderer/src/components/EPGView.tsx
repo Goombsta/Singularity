@@ -1,20 +1,36 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
-import { motion } from 'framer-motion'
+import tvLogoFallback from '../assets/tvlogo.png'
+import { motion, AnimatePresence } from 'framer-motion'
 import { useEpgStore } from '../stores/epgStore'
 import { usePlaylistStore } from '../stores/playlistStore'
 import { usePlayerStore } from '../stores/playerStore'
 import { getProgramsInRange, getCurrentProgram } from '../utils/xmltvParser'
 import { formatTime, getProgramProgress } from '../utils/formatters'
-import type { EpgProgram } from '../types'
+import type { Channel, EpgProgram } from '../types'
 import MiniPlayer from './MiniPlayer'
+
+function ChannelLogoImg({ src, className }: { src?: string; className?: string }): JSX.Element {
+  const [failed, setFailed] = useState(false)
+  return (
+    <img
+      src={!src || failed ? tvLogoFallback : src}
+      alt=""
+      className={className}
+      loading="lazy"
+      onError={() => setFailed(true)}
+    />
+  )
+}
 
 const HOUR_WIDTH = 280 // px per hour
 const ROW_HEIGHT = 60 // px per channel row
 const TIME_HEADER_HEIGHT = 36
 const CHANNEL_COL_WIDTH = 180
 const CATEGORY_COL_WIDTH = 160
+const EPG_PAST_DAYS = 3   // days before today available (catch-up)
+const EPG_FUTURE_DAYS = 3 // days ahead available
 
-function generateTimeSlots(start: Date, hours = 12): Date[] {
+function generateTimeSlots(start: Date, hours = 24): Date[] {
   const slots: Date[] = []
   const rounded = new Date(start)
   rounded.setMinutes(0, 0, 0)
@@ -22,6 +38,26 @@ function generateTimeSlots(start: Date, hours = 12): Date[] {
     slots.push(new Date(rounded.getTime() + i * 3600_000))
   }
   return slots
+}
+
+function startOfDay(date: Date): Date {
+  const d = new Date(date)
+  d.setHours(0, 0, 0, 0)
+  return d
+}
+
+function formatDayLabel(date: Date): string {
+  const today = startOfDay(new Date())
+  const d = startOfDay(date)
+  const diffDays = Math.round((d.getTime() - today.getTime()) / 86_400_000)
+  if (diffDays === 0) return 'Today'
+  if (diffDays === -1) return 'Yesterday'
+  if (diffDays === 1) return 'Tomorrow'
+  return date.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' })
+}
+
+function formatShortDay(date: Date): string {
+  return date.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' })
 }
 
 // ── EPG Preview Panel ────────────────────────────────────────────────────────
@@ -134,14 +170,7 @@ function EPGPreviewPanel({ playingChannel, playingUrl, currentProg, durationMin 
 
             {/* Channel name + logo */}
             <div className="flex items-center gap-2">
-              {playingChannel.logo && (
-                <img
-                  src={playingChannel.logo}
-                  alt=""
-                  className="w-6 h-6 object-contain rounded flex-shrink-0"
-                  onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }}
-                />
-              )}
+              <ChannelLogoImg src={playingChannel.logo} className="w-6 h-6 object-contain rounded flex-shrink-0" />
               <span className="text-sm font-bold truncate" style={{ color: 'var(--text-primary)' }}>
                 {playingChannel.name}
               </span>
@@ -196,7 +225,7 @@ function EPGPreviewPanel({ playingChannel, playingUrl, currentProg, durationMin 
 
 // ─────────────────────────────────────────────────────────────────────────────
 
-export default function EPGView(): JSX.Element {
+export default function EPGView({ onGoLive }: { onGoLive?: () => void }): JSX.Element {
   const isAndroid = window.api?.platform === 'android'
   const { channels: epgMap, loading } = useEpgStore()
   const { filteredChannels } = usePlaylistStore()
@@ -204,20 +233,71 @@ export default function EPGView(): JSX.Element {
   const scrollRef = useRef<HTMLDivElement>(null)
   const channelColRef = useRef<HTMLDivElement>(null)
 
+  // ── Android preview state ──────────────────────────────────────────────────
+  const [showMobilePreview, setShowMobilePreview] = useState(false)
+  const [previewMuted, setPreviewMuted] = useState(true)
+  const lastTapRef = useRef<{ id: string; time: number } | null>(null)
+
+  const handleChannelClick = useCallback((ch: Channel) => {
+    const now = Date.now()
+    const last = lastTapRef.current
+    const isDoubleTap = last && last.id === ch.id && now - last.time < 350
+
+    play(ch)
+    setShowMobilePreview(true)
+
+    if (isDoubleTap) {
+      onGoLive?.()
+      lastTapRef.current = null
+    } else {
+      lastTapRef.current = { id: ch.id, time: now }
+    }
+  }, [play, onGoLive])
+
   const now = new Date()
-  const startTime = new Date(now.getTime() - 2 * 3600_000) // 2 hours ago
-  const endTime = new Date(startTime.getTime() + 12 * 3600_000)
-  const timeSlots = generateTimeSlots(startTime, 12)
+  const today = startOfDay(now)
+
+  // ── Day navigation ─────────────────────────────────────────────────────────
+  const [selectedDay, setSelectedDay] = useState<Date>(today)
+  const isToday = selectedDay.getTime() === today.getTime()
+
+  const canGoPrev = selectedDay.getTime() > today.getTime() - EPG_PAST_DAYS * 86_400_000
+  const canGoNext = selectedDay.getTime() < today.getTime() + EPG_FUTURE_DAYS * 86_400_000
+
+  const goToPrevDay = () => {
+    if (!canGoPrev) return
+    setSelectedDay((d) => new Date(d.getTime() - 86_400_000))
+  }
+  const goToNextDay = () => {
+    if (!canGoNext) return
+    setSelectedDay((d) => new Date(d.getTime() + 86_400_000))
+  }
+  const goToToday = () => setSelectedDay(today)
+
+  // Build day picker tabs (past 3 days + today + next 3 days)
+  const dayTabs: Date[] = []
+  for (let i = -EPG_PAST_DAYS; i <= EPG_FUTURE_DAYS; i++) {
+    dayTabs.push(new Date(today.getTime() + i * 86_400_000))
+  }
+
+  // ── Time range for selected day (midnight → midnight) ─────────────────────
+  const startTime = selectedDay          // 00:00 of selectedDay
+  const endTime = new Date(selectedDay.getTime() + 24 * 3600_000)  // 00:00 next day
+  const timeSlots = generateTimeSlots(startTime, 24)
+
   const [tooltip, setTooltip] = useState<{ program: EpgProgram; x: number; y: number } | null>(null)
   const [selectedGroup, setSelectedGroup] = useState<string>('')
 
-  // Scroll to now
+  // Scroll to current time when viewing today; scroll to start of day otherwise
   useEffect(() => {
-    if (scrollRef.current) {
+    if (!scrollRef.current) return
+    if (isToday) {
       const nowOffset = ((now.getTime() - startTime.getTime()) / 3600_000) * HOUR_WIDTH
-      scrollRef.current.scrollLeft = nowOffset - 200
+      scrollRef.current.scrollLeft = Math.max(0, nowOffset - 200)
+    } else {
+      scrollRef.current.scrollLeft = 0
     }
-  }, [])
+  }, [selectedDay])
 
   const getLeft = (date: Date) =>
     ((date.getTime() - startTime.getTime()) / 3600_000) * HOUR_WIDTH
@@ -225,8 +305,8 @@ export default function EPGView(): JSX.Element {
   const getWidth = (start: Date, end: Date) =>
     Math.max(((end.getTime() - start.getTime()) / 3600_000) * HOUR_WIDTH, 2)
 
-  const nowLeft = getLeft(now)
-  const totalWidth = HOUR_WIDTH * 12
+  const nowLeft = isToday ? getLeft(now) : -1
+  const totalWidth = HOUR_WIDTH * 24
 
   // Collect unique groups from EPG-matched channels
   const epgGroups = [...new Set(
@@ -248,15 +328,233 @@ export default function EPGView(): JSX.Element {
 
   return (
     <div className="flex flex-col h-full">
-      {/* Header */}
-      <div className="flex items-center justify-between px-4 py-3 flex-shrink-0 gap-4" style={{ borderBottom: '1px solid var(--border-hard)' }}>
-        <h2 className="text-lg font-bold text-metallic flex-shrink-0" style={{ fontFamily: 'Syne', letterSpacing: '-0.03em' }}>
-          EPG Guide
-        </h2>
-        <p className="text-xs flex-shrink-0" style={{ color: 'var(--text-secondary)' }}>
-          {loading ? 'Loading EPG...' : `${channelsWithEpg.length} channels`}
-        </p>
+      {/* Header + Day Navigation */}
+      <div className="flex-shrink-0" style={{ borderBottom: '1px solid var(--border-hard)' }}>
+        {/* Title row */}
+        <div className="flex items-center justify-between px-4 py-3 gap-4">
+          <h2 className="text-lg font-bold text-metallic flex-shrink-0" style={{ fontFamily: 'Syne', letterSpacing: '-0.03em' }}>
+            EPG Guide
+          </h2>
+          <p className="text-xs flex-shrink-0" style={{ color: 'var(--text-secondary)' }}>
+            {loading ? 'Loading EPG...' : `${channelsWithEpg.length} channels · ${formatDayLabel(selectedDay)}`}
+          </p>
+        </div>
+
+        {/* Day picker tabs */}
+        {!isAndroid && (
+          <div
+            className="flex items-center gap-1 px-4 pb-2 overflow-x-auto"
+            style={{ scrollbarWidth: 'none' }}
+          >
+            {/* Prev arrow */}
+            <button
+              onClick={goToPrevDay}
+              disabled={!canGoPrev}
+              className="flex-shrink-0 w-7 h-7 rounded-lg flex items-center justify-center"
+              style={{
+                background: 'var(--bg-surface)',
+                border: '1px solid var(--border-hard)',
+                color: canGoPrev ? 'var(--text-primary)' : 'var(--text-secondary)',
+                cursor: canGoPrev ? 'pointer' : 'not-allowed',
+                opacity: canGoPrev ? 1 : 0.4,
+              }}
+              title="Previous day"
+            >
+              <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.5">
+                <path d="M6 2L3 5l3 3"/>
+              </svg>
+            </button>
+
+            {/* Day tabs */}
+            {dayTabs.map((day) => {
+              const isSelected = day.getTime() === selectedDay.getTime()
+              const isTodayTab = day.getTime() === today.getTime()
+              return (
+                <button
+                  key={day.getTime()}
+                  onClick={() => setSelectedDay(day)}
+                  className="flex-shrink-0 px-3 h-7 rounded-lg text-xs font-medium transition-colors"
+                  style={{
+                    background: isSelected ? 'var(--accent)' : 'var(--bg-surface)',
+                    color: isSelected ? '#fff' : isTodayTab ? 'var(--accent)' : 'var(--text-primary)',
+                    border: isSelected
+                      ? '1px solid var(--accent)'
+                      : isTodayTab
+                      ? '1px solid var(--accent)'
+                      : '1px solid var(--border-hard)',
+                    fontWeight: isTodayTab ? 600 : 400,
+                  }}
+                >
+                  {formatShortDay(day)}
+                </button>
+              )
+            })}
+
+            {/* Next arrow */}
+            <button
+              onClick={goToNextDay}
+              disabled={!canGoNext}
+              className="flex-shrink-0 w-7 h-7 rounded-lg flex items-center justify-center"
+              style={{
+                background: 'var(--bg-surface)',
+                border: '1px solid var(--border-hard)',
+                color: canGoNext ? 'var(--text-primary)' : 'var(--text-secondary)',
+                cursor: canGoNext ? 'pointer' : 'not-allowed',
+                opacity: canGoNext ? 1 : 0.4,
+              }}
+              title="Next day"
+            >
+              <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.5">
+                <path d="M4 2l3 3-3 3"/>
+              </svg>
+            </button>
+
+            {/* Jump to Today shortcut — only shown when not on today */}
+            {!isToday && (
+              <button
+                onClick={goToToday}
+                className="flex-shrink-0 px-3 h-7 rounded-lg text-xs font-semibold ml-1"
+                style={{
+                  background: 'rgba(91,127,166,0.15)',
+                  color: 'var(--accent)',
+                  border: '1px solid var(--accent)',
+                }}
+              >
+                Today
+              </button>
+            )}
+          </div>
+        )}
+
+        {/* Android: compact prev/today/next row */}
+        {isAndroid && (
+          <div className="flex items-center gap-2 px-4 pb-2">
+            <button
+              onClick={goToPrevDay}
+              disabled={!canGoPrev}
+              className="text-xs px-2 py-1 rounded"
+              style={{ background: 'var(--bg-surface)', color: 'var(--text-primary)', opacity: canGoPrev ? 1 : 0.4 }}
+            >
+              ‹ Prev
+            </button>
+            <span className="flex-1 text-center text-xs font-medium" style={{ color: 'var(--text-primary)' }}>
+              {formatDayLabel(selectedDay)}
+            </span>
+            {!isToday && (
+              <button onClick={goToToday} className="text-xs px-2 py-1 rounded" style={{ background: 'var(--accent)', color: '#fff' }}>
+                Today
+              </button>
+            )}
+            <button
+              onClick={goToNextDay}
+              disabled={!canGoNext}
+              className="text-xs px-2 py-1 rounded"
+              style={{ background: 'var(--bg-surface)', color: 'var(--text-primary)', opacity: canGoNext ? 1 : 0.4 }}
+            >
+              Next ›
+            </button>
+          </div>
+        )}
+
+        {/* Android: category filter chips */}
+        {isAndroid && epgGroups.length > 0 && (
+          <div
+            className="flex gap-1.5 px-3 pb-2 overflow-x-auto flex-shrink-0"
+            style={{ scrollbarWidth: 'none' }}
+          >
+            <button
+              className="flex-shrink-0 text-xs px-3 py-1 rounded-full font-medium"
+              style={{
+                background: !selectedGroup ? 'var(--accent)' : 'var(--bg-surface)',
+                color: !selectedGroup ? '#fff' : 'var(--text-secondary)',
+                border: !selectedGroup ? '1px solid var(--accent)' : '1px solid var(--border-hard)',
+              }}
+              onClick={() => setSelectedGroup('')}
+            >
+              All
+            </button>
+            {epgGroups.map((g) => (
+              <button
+                key={g}
+                className="flex-shrink-0 text-xs px-3 py-1 rounded-full"
+                style={{
+                  background: selectedGroup === g ? 'var(--accent)' : 'var(--bg-surface)',
+                  color: selectedGroup === g ? '#fff' : 'var(--text-secondary)',
+                  border: selectedGroup === g ? '1px solid var(--accent)' : '1px solid var(--border-hard)',
+                  whiteSpace: 'nowrap',
+                }}
+                onClick={() => setSelectedGroup(g)}
+              >
+                {g}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
+
+      {/* Mobile preview panel — Android only */}
+      <AnimatePresence>
+        {isAndroid && showMobilePreview && playingUrl && playingChannel && (
+          <motion.div
+            key="mobile-preview"
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: 'auto' }}
+            exit={{ opacity: 0, height: 0 }}
+            className="flex-shrink-0 flex items-start gap-3 px-3 py-2"
+            style={{ borderBottom: '1px solid var(--border-hard)', background: 'var(--bg-surface)' }}
+          >
+            {/* 160×90 MiniPlayer — double-tap wrapper triggers go-live */}
+            <div
+              className="flex-shrink-0 relative rounded-xl overflow-hidden bg-black"
+              style={{ width: 160, height: 90 }}
+              onDoubleClick={() => onGoLive?.()}
+            >
+              <MiniPlayer
+                url={playingUrl}
+                muted={previewMuted}
+                volume={previewMuted ? 0 : 0.7}
+                style={{ width: '100%', height: '100%' }}
+              />
+            </div>
+
+            {/* Info + controls */}
+            <div className="flex-1 min-w-0 flex flex-col gap-1">
+              <p className="text-sm font-semibold truncate" style={{ color: 'var(--text-primary)' }}>
+                {playingChannel.name}
+              </p>
+              {currentProg && (
+                <p className="text-xs truncate" style={{ color: 'var(--text-secondary)' }}>
+                  {currentProg.title}
+                </p>
+              )}
+              <div className="flex gap-2 mt-1">
+                <button
+                  className="btn text-xs px-2 py-1 rounded-lg"
+                  style={{ background: 'var(--bg-raised)', color: 'var(--text-secondary)', border: '1px solid var(--border-hard)' }}
+                  onClick={() => setPreviewMuted((m) => !m)}
+                >
+                  {previewMuted ? '🔇' : '🔊'}
+                </button>
+                <motion.button
+                  className="btn-primary btn text-xs px-3 py-1 rounded-lg"
+                  whileTap={{ scale: 0.97 }}
+                  onClick={() => onGoLive?.()}
+                >
+                  ▶ Full Screen
+                </motion.button>
+              </div>
+            </div>
+
+            {/* Dismiss */}
+            <button
+              style={{ color: 'var(--text-secondary)', padding: 4, flexShrink: 0 }}
+              onClick={() => setShowMobilePreview(false)}
+            >
+              ✕
+            </button>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Preview panel — desktop only (480px wide, overflows portrait phones) */}
       {!isAndroid && (
@@ -341,11 +639,9 @@ export default function EPGView(): JSX.Element {
                   className="flex items-center gap-2 px-3 cursor-pointer"
                   style={{ height: ROW_HEIGHT, borderBottom: '1px solid var(--border-hard)' }}
                   title={`Preview ${ch.name}`}
-                  onClick={() => play(ch)}
+                  onClick={() => handleChannelClick(ch)}
                 >
-                  {ch.logo && (
-                    <img src={ch.logo} alt="" className="w-7 h-7 object-contain rounded" />
-                  )}
+                  <ChannelLogoImg src={ch.logo} className="w-7 h-7 object-contain rounded" />
                   <p className="text-xs font-medium truncate" style={{ color: 'var(--text-primary)' }}>
                     {ch.name}
                   </p>
@@ -431,7 +727,7 @@ export default function EPGView(): JSX.Element {
                           }}
                           whileHover={{ scale: 1.01, zIndex: 5 }}
                           whileTap={{ scale: 0.98 }}
-                          onClick={() => play(ch)}
+                          onClick={() => handleChannelClick(ch)}
                           onMouseEnter={(e) => setTooltip({ program: prog, x: e.clientX, y: e.clientY })}
                           onMouseLeave={() => setTooltip(null)}
                         >
@@ -460,16 +756,18 @@ export default function EPGView(): JSX.Element {
               })}
             </div>
 
-            {/* Now line */}
-            <div
-              className="absolute top-0 bottom-0 pointer-events-none"
-              style={{ left: nowLeft, width: 2, background: 'var(--danger)', zIndex: 20 }}
-            >
+            {/* Now line — only shown when viewing today */}
+            {isToday && nowLeft >= 0 && (
               <div
-                className="absolute -top-1 -left-1.5 w-3 h-3 rounded-full"
-                style={{ background: 'var(--danger)' }}
-              />
-            </div>
+                className="absolute top-0 bottom-0 pointer-events-none"
+                style={{ left: nowLeft, width: 2, background: 'var(--danger)', zIndex: 20 }}
+              >
+                <div
+                  className="absolute -top-1 -left-1.5 w-3 h-3 rounded-full"
+                  style={{ background: 'var(--danger)' }}
+                />
+              </div>
+            )}
           </div>
         </div>
       )}

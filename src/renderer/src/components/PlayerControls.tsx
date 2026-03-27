@@ -7,13 +7,15 @@ import CastDevicePicker from './CastDevicePicker'
 import { resolveChannelUrl } from '../utils/stalkerApi'
 import type { CastDevice } from '../../../shared/castTypes'
 import type { RefObject } from 'react'
+import type { AudioTrack, SubtitleTrack } from '../stores/playerStore'
 
 interface Props {
   visible: boolean
   videoRef: RefObject<HTMLVideoElement>
+  onToggleEpgOverlay?: () => void
 }
 
-export default function PlayerControls({ visible, videoRef }: Props): JSX.Element {
+export default function PlayerControls({ visible, videoRef, onToggleEpgOverlay }: Props): JSX.Element {
   const {
     channel,
     isPlaying,
@@ -38,6 +40,12 @@ export default function PlayerControls({ visible, videoRef }: Props): JSX.Elemen
     castError,
     startCast,
     stopCast,
+    audioTracks,
+    subtitleTracks,
+    activeAudioTrack,
+    activeSubtitleTrack,
+    setActiveAudioTrack,
+    setActiveSubtitleTrack,
   } = usePlayerStore()
 
   const { settings } = useSettingsStore()
@@ -80,28 +88,36 @@ export default function PlayerControls({ visible, videoRef }: Props): JSX.Elemen
 
   const handleExternalPlayer = async () => {
     if (!channel) return
-    // Stalker channels need a fresh create_link URL — never pass the raw localhost cmd to VLC
-    const streamUrl = channel.stalkerCmd
-      ? await resolveChannelUrl(channel)
-      : channel.url
-    if (!streamUrl) return
+    try {
+      // Stalker channels need a fresh create_link URL — never pass the raw localhost cmd to VLC
+      const streamUrl = channel.stalkerCmd
+        ? await resolveChannelUrl(channel)
+        : channel.url
+      if (!streamUrl) return
 
-    if (isAndroid) {
-      // Android: show the system Intent chooser (VLC, MX Player, etc.)
-      // No pre-configured player needed — the OS handles app selection.
-      await window.api.player.openExternal('', streamUrl)
-      return
+      if (isAndroid) {
+        // Android: show the system Intent chooser (VLC, MX Player, etc.)
+        // No pre-configured player needed — the OS handles app selection.
+        // channel.name is forwarded as the 'title' extra so VLC shows the channel name.
+        // Do NOT await — fire-and-forget mirrors the cast path that is known to work.
+        window.api.player.openExternal('', streamUrl, channel.name)
+        return
+      }
+
+      // Desktop: use the configured default player
+      if (!settings.defaultExternalPlayer) return
+      const player = settings.externalPlayers.find((p) => p.name === settings.defaultExternalPlayer)
+      if (!player) return
+      window.api.player.openExternal(player.path, streamUrl)
+    } catch (e) {
+      console.warn('[ExternalPlayer] handleExternalPlayer error:', e)
     }
-
-    // Desktop: use the configured default player
-    if (!settings.defaultExternalPlayer) return
-    const player = settings.externalPlayers.find((p) => p.name === settings.defaultExternalPlayer)
-    if (!player) return
-    await window.api.player.openExternal(player.path, streamUrl)
   }
 
   const [showStreamInfo, setShowStreamInfo] = useStreamInfoToggle()
   const [showCastPicker, setShowCastPicker] = useState(false)
+  const [showAudioPicker, setShowAudioPicker] = useState(false)
+  const [showSubtitlePicker, setShowSubtitlePicker] = useState(false)
 
   const handleCastClick = () => {
     if (!showCastPicker) {
@@ -132,7 +148,7 @@ export default function PlayerControls({ visible, videoRef }: Props): JSX.Elemen
         ? await resolveChannelUrl(channel)
         : channel?.url
       if (streamUrl) {
-        window.api.player.openExternal('', streamUrl)
+        window.api.player.openExternal('', streamUrl, channel?.name)
       }
       setShowCastPicker(false)
       return
@@ -272,13 +288,101 @@ export default function PlayerControls({ visible, videoRef }: Props): JSX.Elemen
               value={isMuted ? 0 : volume}
               onChange={(e) => setVolume(parseFloat(e.target.value))}
               style={{ ...seekBarStyle, width: 80 }}
+              onKeyDown={(e) => {
+                if (!isTV) return
+                // On TV: ArrowUp/Down navigate focus rather than adjusting volume.
+                // ArrowLeft/Right are left to native range behavior (adjust volume).
+                if (e.key === 'ArrowUp') {
+                  e.preventDefault()
+                  document.querySelector<HTMLElement>('[data-tv-player]')?.focus()
+                } else if (e.key === 'ArrowDown') {
+                  e.preventDefault()
+                  if (!controlsRowRef.current) return
+                  const btns = Array.from(
+                    controlsRowRef.current.querySelectorAll<HTMLElement>('button, input[type="range"]')
+                  )
+                  const idx = btns.indexOf(e.currentTarget)
+                  if (idx >= 0 && idx < btns.length - 1) btns[idx + 1].focus()
+                }
+              }}
             />
 
             {/* Spacer */}
             <div className="flex-1" />
 
+            {/* Audio track picker */}
+            {audioTracks.length > 1 && (
+              <div style={{ position: 'relative' }}>
+                <ControlBtn
+                  onClick={() => { setShowAudioPicker((v) => !v); setShowSubtitlePicker(false) }}
+                  title="Audio track"
+                  style={showAudioPicker ? { background: 'rgba(91,127,166,0.4)' } : undefined}
+                >
+                  <svg width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="white" strokeWidth="1.5">
+                    <path d="M1 4h6M1 6.5h4M1 9h5"/>
+                    <circle cx="10" cy="7" r="2.5"/>
+                    <path d="M10 4.5V2" strokeLinecap="round"/>
+                  </svg>
+                </ControlBtn>
+                <AnimatePresence>
+                  {showAudioPicker && (
+                    <TrackPicker
+                      label="Audio"
+                      tracks={audioTracks}
+                      activeId={activeAudioTrack}
+                      onSelect={(id) => { setActiveAudioTrack(id); setShowAudioPicker(false) }}
+                      onClose={() => setShowAudioPicker(false)}
+                    />
+                  )}
+                </AnimatePresence>
+              </div>
+            )}
+
+            {/* Subtitle / CC picker */}
+            {subtitleTracks.length > 0 && (
+              <div style={{ position: 'relative' }}>
+                <ControlBtn
+                  onClick={() => { setShowSubtitlePicker((v) => !v); setShowAudioPicker(false) }}
+                  title="Subtitles / CC"
+                  style={activeSubtitleTrack >= 0 ? { background: 'rgba(91,127,166,0.4)' } : undefined}
+                >
+                  <svg width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="white" strokeWidth="1.5">
+                    <rect x="1" y="3" width="11" height="7" rx="1.5"/>
+                    <line x1="3" y1="6.5" x2="6" y2="6.5"/>
+                    <line x1="3" y1="8.5" x2="8" y2="8.5"/>
+                    <line x1="7.5" y1="6.5" x2="10" y2="6.5"/>
+                  </svg>
+                </ControlBtn>
+                <AnimatePresence>
+                  {showSubtitlePicker && (
+                    <TrackPicker
+                      label="Subtitles"
+                      tracks={subtitleTracks}
+                      activeId={activeSubtitleTrack}
+                      offOption="Off"
+                      onSelect={(id) => { setActiveSubtitleTrack(id); setShowSubtitlePicker(false) }}
+                      onClose={() => setShowSubtitlePicker(false)}
+                    />
+                  )}
+                </AnimatePresence>
+              </div>
+            )}
+
+            {/* TV Guide overlay toggle (live channels only) */}
+            {isLive && onToggleEpgOverlay && (
+              <ControlBtn onClick={onToggleEpgOverlay} title="TV Guide (i)">
+                <svg width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="white" strokeWidth="1.5">
+                  <rect x="1" y="2" width="11" height="9" rx="1.5"/>
+                  <line x1="1" y1="5.5" x2="12" y2="5.5"/>
+                  <line x1="4" y1="2" x2="4" y2="5.5"/>
+                  <line x1="4" y1="8" x2="9" y2="8"/>
+                  <line x1="4" y1="10" x2="7" y2="10"/>
+                </svg>
+              </ControlBtn>
+            )}
+
             {/* Stream info toggle */}
-            <ControlBtn onClick={() => setShowStreamInfo(!showStreamInfo)} title="Stream info (I)">
+            <ControlBtn onClick={() => setShowStreamInfo(!showStreamInfo)} title="Stream info">
               <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="white" strokeWidth="1.5">
                 <circle cx="6" cy="6" r="5"/>
                 <line x1="6" y1="5" x2="6" y2="9"/>
@@ -382,15 +486,92 @@ const seekBarStyle: React.CSSProperties = {
 }
 
 function useStreamInfoToggle(): [boolean, (v: boolean) => void] {
-  const [show, setShow] = useState(false)
+  // 'i' key is now used for the EPG overlay in Player.tsx — stream info is button-only
+  return useState(false)
+}
 
+// ─── Track Picker ────────────────────────────────────────────────────────────
+
+function TrackPicker({
+  label,
+  tracks,
+  activeId,
+  offOption,
+  onSelect,
+  onClose,
+}: {
+  label: string
+  tracks: AudioTrack[] | SubtitleTrack[]
+  activeId: number
+  offOption?: string
+  onSelect: (id: number) => void
+  onClose: () => void
+}): JSX.Element {
+  // Close on outside click
   useEffect(() => {
-    const h = (e: KeyboardEvent) => {
-      if (e.key === 'i' || e.key === 'I') setShow((v) => !v)
+    const handler = (e: MouseEvent) => {
+      const target = e.target as HTMLElement
+      if (!target.closest('[data-track-picker]')) onClose()
     }
-    window.addEventListener('keydown', h)
-    return () => window.removeEventListener('keydown', h)
-  }, [])
+    const timer = setTimeout(() => document.addEventListener('mousedown', handler), 0)
+    return () => { clearTimeout(timer); document.removeEventListener('mousedown', handler) }
+  }, [onClose])
 
-  return [show, setShow]
+  return (
+    <motion.div
+      data-track-picker
+      initial={{ opacity: 0, y: 6 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: 6 }}
+      transition={{ duration: 0.15 }}
+      className="absolute bottom-10 left-0 glass rounded-xl overflow-hidden"
+      style={{ minWidth: 160, zIndex: 50, boxShadow: '0 8px 32px rgba(0,0,0,0.6)' }}
+    >
+      <div
+        className="px-3 py-2 text-xs font-semibold uppercase"
+        style={{ color: 'var(--text-secondary)', letterSpacing: '0.08em', borderBottom: '1px solid rgba(255,255,255,0.1)' }}
+      >
+        {label}
+      </div>
+
+      {/* Off option for subtitles */}
+      {offOption && (
+        <button
+          className="w-full text-left px-3 py-2 text-sm flex items-center gap-2"
+          style={{
+            color: activeId < 0 ? 'var(--accent)' : 'var(--text-primary)',
+            background: activeId < 0 ? 'rgba(91,127,166,0.15)' : 'transparent',
+          }}
+          onClick={() => onSelect(-1)}
+        >
+          {activeId < 0 && (
+            <svg width="10" height="10" viewBox="0 0 10 10" fill="var(--accent)">
+              <path d="M1 5l3 3 5-6"/>
+            </svg>
+          )}
+          {offOption}
+        </button>
+      )}
+
+      {/* Track options */}
+      {tracks.map((t) => (
+        <button
+          key={t.id}
+          className="w-full text-left px-3 py-2 text-sm flex items-center gap-2"
+          style={{
+            color: activeId === t.id ? 'var(--accent)' : 'var(--text-primary)',
+            background: activeId === t.id ? 'rgba(91,127,166,0.15)' : 'transparent',
+          }}
+          onClick={() => onSelect(t.id)}
+        >
+          {activeId === t.id && (
+            <svg width="10" height="10" viewBox="0 0 10 10" fill="var(--accent)" style={{ flexShrink: 0 }}>
+              <path d="M1 5l3 3 5-6"/>
+            </svg>
+          )}
+          <span className="truncate">{t.name}{t.lang && t.lang !== t.name ? ` (${t.lang})` : ''}</span>
+        </button>
+      ))}
+    </motion.div>
+  )
 }

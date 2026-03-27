@@ -34,11 +34,14 @@ declare global {
         clear: () => Promise<boolean>
       }
       player: {
-        openExternal: (playerPath: string, streamUrl: string) => Promise<{ success: boolean; error?: string }>
+        openExternal: (playerPath: string, streamUrl: string, title?: string) => Promise<{ success: boolean; error?: string }>
         detectExternal: () => Promise<{ name: string; path: string }[]>
       }
       net: {
-        fetch: (url: string) => Promise<{ data: string; status: number }>
+        fetch: (url: string, options?: { headers?: Record<string, string> }) => Promise<{ data: string; status: number }>
+      }
+      updater?: {
+        download: (url: string) => Promise<{ success?: boolean; error?: string }>
       }
     }
   }
@@ -84,7 +87,14 @@ if (!window.api) {
       platform: cap.getPlatform?.() ?? 'android',
 
       window: {
-        minimize: async () => {},
+        // __AppControl is a JavascriptInterface injected by MainActivity.java.
+        // It calls Activity.moveTaskToBack(true) to send the app to the background.
+        minimize: async () => {
+          try {
+            const ctrl = (window as any).__AppControl
+            if (typeof ctrl?.minimize === 'function') ctrl.minimize()
+          } catch { /* ignore */ }
+        },
         maximize: async () => {},
         close: async () => {},
         isMaximized: async () => false,
@@ -149,9 +159,13 @@ if (!window.api) {
       },
 
       player: {
-        openExternal: async (_playerPath: string, streamUrl: string) => {
+        openExternal: async (_playerPath: string, streamUrl: string, title?: string) => {
           try {
-            await cap.Plugins.ExternalPlayer.open({ url: streamUrl })
+            await cap.Plugins.ExternalPlayer.open({
+              url: streamUrl,
+              ...(title ? { title } : {}),
+              // networkCaching intentionally omitted — Java defaults to 5000 ms
+            })
             return { success: true }
           } catch (e: any) {
             return { success: false, error: e?.message ?? 'Failed to open external player' }
@@ -168,10 +182,32 @@ if (!window.api) {
       },
 
       net: {
-        fetch: async (url: string) => {
-          const res = await CapacitorHttp.get({ url, responseType: 'arraybuffer' })
-          const bytes = new Uint8Array(res.data as ArrayBuffer)
-          return { data: bytesToBase64(bytes), status: res.status }
+        fetch: async (url: string, options?: { headers?: Record<string, string> }) => {
+          const res = await CapacitorHttp.get({
+            url,
+            responseType: 'text',
+            ...(options?.headers ? { headers: options.headers } : {}),
+          })
+          // Callers expect base64-encoded data (they call atob to decode).
+          // Use responseType 'text' to get a plain string, then encode it ourselves
+          // so we don't rely on Capacitor's internal arraybuffer serialisation behaviour.
+          const text = typeof res.data === 'string' ? res.data : JSON.stringify(res.data)
+          const data = btoa(unescape(encodeURIComponent(text)))
+          return { data, status: res.status }
+        },
+      },
+
+      // Updater — downloads the latest APK and fires the system package installer.
+      // Uses UpdaterPlugin (native Java) so the download runs on a background thread
+      // and the installer Intent is fired with correct FileProvider content URI.
+      updater: {
+        download: async (url: string) => {
+          try {
+            await cap.Plugins.Updater.downloadAndInstall({ url })
+            return { success: true }
+          } catch (e: any) {
+            return { success: false, error: e?.message ?? 'Download failed' }
+          }
         },
       },
 

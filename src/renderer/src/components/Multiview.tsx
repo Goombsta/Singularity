@@ -235,6 +235,9 @@ function MiniPlayer({ panel, allChannels, isFocused, onFocus }: MiniPlayerProps)
         boxShadow: panel.isPrimary ? '0 0 24px rgba(91,127,166,0.35)' : 'none',
       }}
       whileHover={{ scale: 1.005 }}
+      // On TV any focus within the panel (panel div itself or a child control)
+      // shows the controls overlay and resets the auto-hide timer.
+      onFocus={() => { if (isTV) { setPrimaryPanel(panel.id); onFocus() } }}
       onClick={() => { setPrimaryPanel(panel.id); onFocus() }}
       onKeyDown={(e) => {
         if (!isTV) return
@@ -246,6 +249,9 @@ function MiniPlayer({ panel, allChannels, isFocused, onFocus }: MiniPlayerProps)
           const sel = e.currentTarget.querySelector<HTMLElement>('select')
           sel?.focus()
         }
+        // Only intercept navigation keys when the panel div itself is focused
+        // (not when a child select/input/button has focus — those handle their own keys)
+        if (e.target !== e.currentTarget) return
         if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
           e.preventDefault()
           const panels = Array.from(document.querySelectorAll<HTMLElement>('[data-tv-panel]'))
@@ -260,11 +266,14 @@ function MiniPlayer({ panel, allChannels, isFocused, onFocus }: MiniPlayerProps)
         }
       }}
     >
+      {/* muted is managed imperatively via useEffect to avoid React-reconciliation
+          conflicts with loadChannel's video.muted = true autoplay guard. */}
       <video
         ref={videoRef}
-        className="w-full h-full object-contain"
-        muted={panel.isMuted}
+        className="w-full h-full"
+        style={{ objectFit: 'contain' }}
         playsInline
+        preload="auto"
       />
 
       {/* Empty panel prompt */}
@@ -340,6 +349,8 @@ function MiniPlayer({ panel, allChannels, isFocused, onFocus }: MiniPlayerProps)
         style={{
           background: 'linear-gradient(to top, rgba(4,5,12,0.97) 0%, transparent 100%)',
           padding: isAndroid ? '20px 6px 6px' : '28px 8px 8px',
+          // Show controls when panel is focused (tap on mobile, D-pad focus on TV).
+          // The parent focusPanel timer auto-hides after 10 s on TV / 4 s on mobile.
           opacity: isAndroid ? (isFocused ? 1 : 0) : undefined,
           pointerEvents: isAndroid ? (isFocused ? 'auto' : 'none') : undefined,
           transition: 'opacity 0.25s',
@@ -398,6 +409,11 @@ function MiniPlayer({ panel, allChannels, isFocused, onFocus }: MiniPlayerProps)
           onClick={(e) => e.stopPropagation()}
           onKeyDown={(e) => {
             if (!isTV) return
+            // ArrowDown → advance to channel select (skip native option-change behavior on TV)
+            if (e.key === 'ArrowDown') {
+              e.preventDefault()
+              channelSelectRef.current?.focus()
+            }
             // Escape → return focus to panel div
             if (e.key === 'Escape') {
               e.preventDefault()
@@ -500,12 +516,27 @@ function MiniPlayer({ panel, allChannels, isFocused, onFocus }: MiniPlayerProps)
             title={`Volume: ${Math.round((panel.isMuted ? 0 : panel.volume) * 100)}%`}
             onKeyDown={(e) => {
               if (!isTV) return
-              // ArrowLeft at minimum → jump back to channel select
-              if (e.key === 'ArrowLeft' && (panel.isMuted ? 0 : panel.volume) <= 0.05) {
+              // Stop all key propagation from the slider so they don't bubble to the panel div
+              e.stopPropagation()
+              if (e.key === 'ArrowLeft') {
+                // At minimum volume: ArrowLeft returns to channel select
+                if ((panel.isMuted ? 0 : panel.volume) <= 0.05) {
+                  e.preventDefault()
+                  channelSelectRef.current?.focus()
+                }
+                // Otherwise let native range behavior adjust the volume
+              } else if (e.key === 'ArrowRight') {
+                // At maximum volume: ArrowRight moves to mute button
+                if ((panel.isMuted ? 0 : panel.volume) >= 0.95) {
+                  e.preventDefault()
+                  const panelEl = e.currentTarget.closest<HTMLElement>('[data-tv-panel]')
+                  panelEl?.querySelector<HTMLElement>('button')?.focus()
+                }
+                // Otherwise let native range behavior adjust the volume
+              } else if (e.key === 'ArrowUp') {
                 e.preventDefault()
                 channelSelectRef.current?.focus()
-              }
-              if (e.key === 'Escape') {
+              } else if (e.key === 'Escape') {
                 e.preventDefault()
                 e.currentTarget.closest<HTMLElement>('[data-tv-panel]')?.focus()
               }
@@ -529,6 +560,23 @@ function MiniPlayer({ panel, allChannels, isFocused, onFocus }: MiniPlayerProps)
             style={{ background: 'rgba(255,255,255,0.15)' }}
             whileTap={{ scale: 0.9 }}
             onClick={(e) => { e.stopPropagation(); togglePanelMute(panel.id) }}
+            onKeyDown={(e) => {
+              if (!isTV) return
+              e.stopPropagation()
+              if (e.key === 'ArrowLeft') {
+                e.preventDefault()
+                const panelEl = e.currentTarget.closest<HTMLElement>('[data-tv-panel]')
+                panelEl?.querySelector<HTMLElement>('input[type="range"]')?.focus()
+              }
+              if (e.key === 'ArrowUp') {
+                e.preventDefault()
+                channelSelectRef.current?.focus()
+              }
+              if (e.key === 'Escape') {
+                e.preventDefault()
+                e.currentTarget.closest<HTMLElement>('[data-tv-panel]')?.focus()
+              }
+            }}
             title={panel.isMuted ? 'Unmute' : 'Mute'}
           >
             {panel.isMuted ? (
@@ -628,18 +676,21 @@ function getVisiblePanelCount(layout: MultiviewLayout): number {
 export default function Multiview(): JSX.Element {
   // Must be inside component so window.api is already set by main.tsx
   const isAndroid = window.api?.platform === 'android'
+  const isTV = isAndroid && !!(window as unknown as { __IS_TV__?: boolean }).__IS_TV__
 
   const { multiviewPanels, multiviewLayout, toggleMultiview, setMultiviewLayout } = usePlayerStore()
   const { playlists, activePlaylistId, setSearchQuery } = usePlaylistStore()
 
-  // Which panel has controls visible on Android (tap-to-show, auto-hide after 4s)
+  // Which panel has controls visible (tap-to-show on mobile, D-pad focus on TV).
+  // Auto-hides after 10 s on TV (longer since D-pad navigation takes more time)
+  // or 4 s on mobile (tap interaction is quick).
   const [focusedPanelId, setFocusedPanelId] = useState<string | null>(null)
   const focusTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const focusPanel = useCallback((id: string) => {
     setFocusedPanelId(id)
     if (focusTimerRef.current) clearTimeout(focusTimerRef.current)
-    focusTimerRef.current = setTimeout(() => setFocusedPanelId(null), 4000)
-  }, [])
+    focusTimerRef.current = setTimeout(() => setFocusedPanelId(null), isTV ? 10000 : 4000)
+  }, [isTV])
   useEffect(() => () => { if (focusTimerRef.current) clearTimeout(focusTimerRef.current) }, [])
 
   // On Android portrait, default to 2v (stacked) — much better than side-by-side
@@ -648,6 +699,13 @@ export default function Multiview(): JSX.Element {
       setMultiviewLayout('2v')
     }
   }, [])
+
+  // TV: immediately show controls for the first panel when Multiview opens
+  useEffect(() => {
+    if (!isTV) return
+    const firstId = multiviewPanels[0]?.id
+    if (firstId) focusPanel(firstId)
+  }, [isTV])
 
   // Use the raw unfiltered live channels so Live TV search/group selection doesn't limit Multiview
   const filteredChannels = (() => {
