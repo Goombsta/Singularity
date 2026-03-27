@@ -247,7 +247,7 @@ export function registerIpcHandlers(): void {
   })
 
   // Download a platform-specific installer to temp dir and run it via shell.openPath.
-  // Follows HTTP redirects (GitHub release asset URLs redirect to CDN).
+  // Follows HTTP redirects and handles errors on both request and response streams.
   ipcMain.handle('updater:download', async (_event, url: string) => {
     if (!isSafeUrl(url)) return { error: 'Blocked URL' }
     const fileName = url.split('/').pop()?.split('?')[0] ?? 'Singularity-update'
@@ -255,15 +255,19 @@ export function registerIpcHandlers(): void {
 
     const fetchWithRedirects = (reqUrl: string, redirectsLeft = 10): Promise<import('http').IncomingMessage> =>
       new Promise((resolve, reject) => {
-        https.get(reqUrl, { headers: { 'User-Agent': 'Singularity-IPTV' } }, (res) => {
+        const req = https.get(reqUrl, { headers: { 'User-Agent': 'Singularity-IPTV' } }, (res) => {
           if (res.statusCode && res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
             res.resume()
             if (redirectsLeft <= 0) { reject(new Error('Too many redirects')); return }
-            fetchWithRedirects(res.headers.location, redirectsLeft - 1).then(resolve, reject)
+            // Resolve relative Location headers against the current URL
+            const nextUrl = new URL(res.headers.location, reqUrl).href
+            fetchWithRedirects(nextUrl, redirectsLeft - 1).then(resolve, reject)
           } else {
             resolve(res)
           }
-        }).on('error', reject)
+        })
+        req.setTimeout(30_000, () => { req.destroy(new Error('Request timed out')) })
+        req.on('error', reject)
       })
 
     try {
@@ -272,15 +276,16 @@ export function registerIpcHandlers(): void {
 
       await new Promise<void>((resolve, reject) => {
         const file = createWriteStream(destPath)
+        // Must handle errors on res — unhandled error events crash the main process
+        res.on('error', (err) => { file.destroy(); unlink(destPath, () => {}); reject(err) })
         res.pipe(file)
         file.on('finish', () => { file.close(); resolve() })
         file.on('error', (err) => { file.close(); unlink(destPath, () => {}); reject(err) })
       })
 
-      // Quit before launching installer so it can replace app files cleanly
+      // shell.openPath hands the file to the OS; NSIS installer.nsh handles killing the app
       const errMsg = await shell.openPath(destPath)
       if (errMsg) return { error: errMsg }
-      app.quit()
       return { success: true }
     } catch (err) {
       return { error: String(err) }

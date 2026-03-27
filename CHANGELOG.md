@@ -4,6 +4,19 @@
 
 ---
 
+## v1.3.8
+
+### Bug Fixes
+
+#### 1 — Download Update no longer crashes the app
+- Fixed: unhandled `error` event on HTTP response stream crashed the main process mid-download — now handled explicitly
+- Fixed: relative `Location` headers in HTTP redirects caused "Invalid URL" crash — now resolved against the request URL before following
+- Fixed: `app.quit()` was called immediately after `shell.openPath()` (which returns before the installer starts), killing the app before NSIS could initialize — removed; NSIS `installer.nsh` handles closing the app via `taskkill`
+- Added 30-second socket timeout so a stalled download fails with an error instead of hanging indefinitely
+- Reverted v1.3.7 GitHub-asset URL lookup (was causing download button to disappear); download uses static `singularitytv.app/downloads/` URLs as intended
+
+---
+
 ## v1.3.7
 
 ### Bug Fixes

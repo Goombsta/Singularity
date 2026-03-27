@@ -12,10 +12,10 @@ const version = __APP_VERSION__
 // Leave empty to disable. Update checks hit the public GitHub Releases API — no auth needed.
 const GITHUB_REPO = 'Goombsta/Singularity'
 
-// Filename of the release asset for each platform (must match electron-builder output names)
-const PLATFORM_ASSET_NAMES: Record<string, string> = {
-  win32:   'Singularity.Setup.exe',
-  darwin:  'Singularity.dmg',
+const PLATFORM_DOWNLOAD_URLS: Record<string, string> = {
+  win32:   'https://www.singularitytv.app/downloads/Singularity.Setup.exe',
+  darwin:  'https://www.singularitytv.app/downloads/Singularity.dmg',
+  android: 'https://www.singularitytv.app/downloads/Singularity.apk',
 }
 
 type Tab = 'general' | 'playlists' | 'playback' | 'external' | 'cache' | 'about'
@@ -31,21 +31,20 @@ export default function Settings(): JSX.Element {
   const { load: loadEpg, clear: clearEpg, lastUpdated } = useEpgStore()
   const [showAddPlaylist, setShowAddPlaylist] = useState(false)
   const [latestRelease, setLatestRelease] = useState<string | null>(null)
-  const [downloadUrl, setDownloadUrl] = useState<string | null>(null)
   const [checkingUpdates, setCheckingUpdates] = useState(false)
   const [updateChecked, setUpdateChecked] = useState(false)
   const [downloadState, setDownloadState] = useState<'idle' | 'downloading' | 'done' | 'error'>('idle')
 
   const downloadUpdate = useCallback(async () => {
-    if (!downloadUrl) return
+    const url = PLATFORM_DOWNLOAD_URLS[window.api?.platform ?? '']
+    if (!url) return
     setDownloadState('downloading')
-    const result = await window.api.updater.download(downloadUrl) as { success?: boolean; error?: string }
+    const result = await window.api.updater.download(url) as { success?: boolean; error?: string }
     setDownloadState(result?.success ? 'done' : 'error')
-  }, [downloadUrl])
+  }, [])
 
   const checkForUpdates = useCallback(async () => {
     setDownloadState('idle')
-    setDownloadUrl(null)
     setCheckingUpdates(true)
     setLatestRelease(null)
     try {
@@ -55,15 +54,8 @@ export default function Settings(): JSX.Element {
         { headers: { 'User-Agent': 'Singularity-IPTV' } }
       ) as { data?: string; status?: number; error?: string }
       if (result.error || !result.data) throw new Error(result.error || 'No data')
-      const json = JSON.parse(atob(result.data)) as {
-        tag_name?: string
-        assets?: Array<{ name: string; browser_download_url: string }>
-      }
+      const json = JSON.parse(atob(result.data)) as { tag_name?: string }
       setLatestRelease((json?.tag_name ?? '').replace(/^v/, '') || null)
-      // Find the asset matching this platform and store its direct download URL
-      const targetName = PLATFORM_ASSET_NAMES[window.api?.platform ?? '']
-      const asset = targetName ? json.assets?.find(a => a.name === targetName) : undefined
-      setDownloadUrl(asset?.browser_download_url ?? null)
     } catch {
       setLatestRelease(null)
     } finally {
@@ -566,7 +558,7 @@ export default function Settings(): JSX.Element {
               <div className="flex justify-between items-center" style={{ borderTop: '1px solid var(--border-hard)', paddingTop: 8, marginTop: 4 }}>
                 <span className="text-sm" style={{ color: 'var(--text-secondary)' }}>Updates</span>
                 <div className="flex items-center gap-2">
-                  {updateChecked && !checkingUpdates && latestRelease && latestRelease !== version && downloadUrl && (
+                  {updateChecked && !checkingUpdates && latestRelease && latestRelease !== version && (
                     <button
                       onClick={downloadState === 'downloading' || downloadState === 'done' ? undefined : downloadUpdate}
                       disabled={downloadState === 'downloading' || downloadState === 'done'}
