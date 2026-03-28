@@ -183,21 +183,29 @@ export default function App(): JSX.Element {
         return
       }
       // Fire OS / Android TV remote media keys
+      // Use e.key names so alphanumeric keys in text inputs are unaffected.
+      // Fall back to keyCode only outside text inputs for older Fire OS / Silk browser compatibility.
+      const target2 = e.target as HTMLElement
+      const inTextInput =
+        target2.tagName === 'INPUT' ||
+        target2.tagName === 'TEXTAREA' ||
+        target2.isContentEditable
+      const key = e.key
       const code = e.keyCode
-      if (code === 179) { // Play/Pause (Fire OS)
+      if (key === 'MediaPlayPause' || (code === 179 && !inTextInput)) {
         e.preventDefault()
         isPlaying ? pause() : resume()
-      } else if (code === 85) { // Play (KEYCODE_MEDIA_PLAY)
+      } else if (key === 'MediaPlay' || (code === 85 && !inTextInput)) {
         e.preventDefault()
         resume()
-      } else if (code === 86) { // Pause (KEYCODE_MEDIA_PAUSE)
+      } else if (key === 'MediaPause' || (code === 86 && !inTextInput)) {
         e.preventDefault()
         pause()
-      } else if (code === 89) { // Rewind (KEYCODE_MEDIA_REWIND)
+      } else if (key === 'MediaRewind' || (code === 89 && !inTextInput)) {
         e.preventDefault()
         const vid = document.querySelector<HTMLVideoElement>('video')
         if (vid) vid.currentTime = Math.max(0, vid.currentTime - 10)
-      } else if (code === 90) { // Fast-forward (KEYCODE_MEDIA_FAST_FORWARD)
+      } else if (key === 'MediaFastForward' || (code === 90 && !inTextInput)) {
         e.preventDefault()
         const vid = document.querySelector<HTMLVideoElement>('video')
         if (vid && vid.duration) vid.currentTime = Math.min(vid.duration, vid.currentTime + 10)

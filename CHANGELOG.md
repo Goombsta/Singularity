@@ -32,6 +32,11 @@
 
 ### Bug Fixes
 
+#### 7 — Alphanumeric keys (U, V, Y, Z) blocked in text inputs
+- The Fire OS media-key handler in `App.tsx` was matching `keyCode` 85/86/89/90 (KEYCODE_MEDIA_PLAY/PAUSE/REWIND/FAST_FORWARD) before checking whether the event came from a text field, causing `e.preventDefault()` to consume those characters when typed in any input
+- Primary detection switched to `e.key === 'MediaPlay'` / `'MediaPause'` / `'MediaRewind'` / `'MediaFastForward'` — named media-key values that never collide with alphanumeric characters
+- `keyCode` fallback retained for older Fire OS / Silk browser compatibility, guarded by an `inTextInput` check (`INPUT`, `TEXTAREA`, `contentEditable`) identical to the existing guard in `useKeyboard.ts`
+
 #### 5 — EPG/channel logo fallback extended to EPG views
 - Channels missing a `tvg-logo` or with a broken URL now show the Singularity placeholder image in the EPG grid rows, EPG preview panel, and EPG overlay header (previously only applied in the channel list)
 
