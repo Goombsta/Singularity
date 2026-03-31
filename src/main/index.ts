@@ -1,8 +1,9 @@
-import { app, shell, BrowserWindow, session } from 'electron'
+import { app, shell, BrowserWindow, session, ipcMain } from 'electron'
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import { registerIpcHandlers } from './ipc'
 import * as castService from './castService'
+import { startVodProxy, stopVodProxy, getVodProxyPort } from './vodProxy'
 
 let mainWindow: BrowserWindow | null = null
 
@@ -96,6 +97,8 @@ app.whenReady().then(() => {
   )
 
   registerIpcHandlers()
+  ipcMain.handle('vod:proxyPort', () => getVodProxyPort())
+  startVodProxy().catch((err) => console.error('[vodProxy] Failed to start:', err))
   createWindow()
   if (mainWindow) castService.initCastService(mainWindow.webContents)
 
@@ -104,7 +107,10 @@ app.whenReady().then(() => {
   })
 })
 
-app.on('before-quit', () => castService.destroyCastService())
+app.on('before-quit', () => {
+  castService.destroyCastService()
+  stopVodProxy()
+})
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {

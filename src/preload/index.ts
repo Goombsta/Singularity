@@ -46,6 +46,10 @@ const api = {
   updater: {
     download: (url: string) => ipcRenderer.invoke('updater:download', url),
   },
+  // VOD proxy — returns the localhost port of the transcoding proxy
+  vod: {
+    getProxyPort: (): Promise<number | null> => ipcRenderer.invoke('vod:proxyPort'),
+  },
   // Casting (Chromecast + DLNA)
   cast: {
     getDevices: () => ipcRenderer.invoke('cast:getDevices'),

@@ -8,6 +8,15 @@ import { resolveChannelUrl } from '../utils/stalkerApi'
 
 const STALL_TIMEOUT_MS = 10_000
 
+// ─── Native Player (Android / Capacitor) ────────────────────────────────────
+// Access the Capacitor NativePlayer plugin for ExoPlayer-backed playback.
+// Returns null on non-Capacitor platforms (desktop Electron).
+function getNativePlayer(): any | null {
+  const cap = (window as any).Capacitor
+  if (!cap?.isNativePlatform?.()) return null
+  return cap.Plugins?.NativePlayer ?? null
+}
+
 // ─── Series Episode Picker ─────────────────────────────────────────────────
 
 interface SeriesInfo {
@@ -249,6 +258,13 @@ export default function Player(): JSX.Element {
   const [showControls, setShowControls] = useState(true)
   const controlsTimerRef = useRef<ReturnType<typeof setTimeout>>()
 
+  // Android native player refs
+  const videoContainerRef = useRef<HTMLDivElement>(null)
+  const nativePlayerRef = useRef<boolean>(false)
+
+  // VOD proxy port — resolved once on mount from the main process
+  const vodProxyPortRef = useRef<number | null>(null)
+
   // Episode URL override for series (local state — doesn't touch playerStore)
   const [episodeUrl, setEpisodeUrl] = useState<string | null>(null)
   const [episodeTitle, setEpisodeTitle] = useState<string | null>(null)
@@ -269,6 +285,7 @@ export default function Player(): JSX.Element {
     isMuted,
     volume,
     isFullscreen,
+    isLoading,
     setLoading,
     setError,
     setStreamInfo,
@@ -286,6 +303,13 @@ export default function Player(): JSX.Element {
 
   // Subscribe to error state so we can react to format errors on Android
   const storeError = usePlayerStore((s) => s.error)
+
+  // Fetch the VOD proxy port from the main process once on mount (Electron only)
+  useEffect(() => {
+    ;(window.api as any)?.vod?.getProxyPort?.().then((port: number | null) => {
+      vodProxyPortRef.current = port ?? null
+    }).catch(() => {})
+  }, [])
 
   // Reset episode state whenever channel changes
   useEffect(() => {
@@ -341,26 +365,64 @@ export default function Player(): JSX.Element {
 
   // Volume / mute
   useEffect(() => {
+    if (isAndroid) {
+      const plugin = getNativePlayer()
+      if (plugin && nativePlayerRef.current) {
+        plugin.setVolume({ volume }).catch(() => {})
+        plugin.setMute({ muted: isMuted }).catch(() => {})
+      }
+      return
+    }
     if (!videoRef.current) return
     videoRef.current.volume = volume
     videoRef.current.muted = isMuted
-  }, [volume, isMuted])
+  }, [volume, isMuted, isAndroid])
 
-  // Audio track switching — applied to the live HLS.js instance when user changes selection
+  // Audio track switching
   useEffect(() => {
-    if (!hlsRef.current || activeAudioTrack < 0) return
-    hlsRef.current.audioTrack = activeAudioTrack
-  }, [activeAudioTrack])
+    if (isAndroid) {
+      const plugin = getNativePlayer()
+      if (plugin && nativePlayerRef.current && activeAudioTrack >= 0) {
+        plugin.selectAudioTrack({ trackId: activeAudioTrack }).catch(() => {})
+      }
+      return
+    }
+    if (hlsRef.current) {
+      if (activeAudioTrack >= 0) hlsRef.current.audioTrack = activeAudioTrack
+      return
+    }
+    // Native <video> audio track switching (VOD multi-audio)
+    if (!videoRef.current || activeAudioTrack < 0) return
+    const nativeTracks = (videoRef.current as any).audioTracks
+    if (!nativeTracks) return
+    for (let i = 0; i < nativeTracks.length; i++) {
+      nativeTracks[i].enabled = (i === activeAudioTrack)
+    }
+  }, [activeAudioTrack, isAndroid])
 
-  // Subtitle track switching — -1 means off (HLS.js uses -1 to disable subtitles)
+  // Subtitle track switching — -1 means off
   useEffect(() => {
+    if (isAndroid) {
+      const plugin = getNativePlayer()
+      if (plugin && nativePlayerRef.current) {
+        plugin.selectSubtitleTrack({ trackId: activeSubtitleTrack }).catch(() => {})
+      }
+      return
+    }
     if (!hlsRef.current) return
     hlsRef.current.subtitleTrack = activeSubtitleTrack
-  }, [activeSubtitleTrack])
+  }, [activeSubtitleTrack, isAndroid])
 
-  // Play/pause — only pause here; playing is started by the load effect.
-  // Guard video.play() with readyState check to avoid AbortError when src isn't loaded yet.
+  // Play/pause
   useEffect(() => {
+    if (isAndroid) {
+      const plugin = getNativePlayer()
+      if (plugin && nativePlayerRef.current) {
+        if (isPaused) plugin.pause().catch(() => {})
+        else if (isPlaying) plugin.play().catch(() => {})
+      }
+      return
+    }
     const video = videoRef.current
     if (!video) return
     if (isPaused) {
@@ -368,7 +430,7 @@ export default function Player(): JSX.Element {
     } else if (isPlaying && video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
       video.play().catch(() => {})
     }
-  }, [isPlaying, isPaused])
+  }, [isPlaying, isPaused, isAndroid])
 
   // Determine the effective URL to load into the video element
   // Series: episodeUrl | Stalker: stalkerUrl (wait for resolution) | otherwise: url from store
@@ -385,11 +447,148 @@ export default function Player(): JSX.Element {
       if (mpegtsRef.current) { mpegtsRef.current.destroy(); mpegtsRef.current = null }
       const v = videoRef.current
       if (v) { v.pause(); v.removeAttribute('src'); v.load() }
+      // Stop native player too
+      const plugin = getNativePlayer()
+      if (plugin && nativePlayerRef.current) {
+        plugin.stop().catch(() => {})
+        nativePlayerRef.current = false
+      }
     }
   }, [effectiveUrl])
 
-  // Load stream
+  // ── Android: make WebView background transparent so ExoPlayer TextureView shows through ──
   useEffect(() => {
+    if (!isAndroid) return
+    document.documentElement.style.background = 'transparent'
+    document.body.style.background = 'transparent'
+    const root = document.getElementById('root')
+    if (root) root.style.background = 'transparent'
+    // No cleanup: on Android the WebView must stay transparent for the lifetime of the
+    // Player. Restoring backgrounds on unmount caused a visible flash when navigating
+    // away and back (e.g. Settings → Live) — there is a frame gap between unmount
+    // cleanup and the next mount's effect re-running, during which the App div's
+    // opaque bg-base re-appears and hides the video on remount.
+  }, [isAndroid])
+
+  // ── Android: sync SurfaceView position with the transparent placeholder div ──
+  useEffect(() => {
+    if (!isAndroid) return
+    const plugin = getNativePlayer()
+    if (!plugin) return
+
+    const sync = () => {
+      if (!videoContainerRef.current) return
+      const r = videoContainerRef.current.getBoundingClientRect()
+      // Only send non-zero rects — zero means the layout hasn't settled yet
+      if (r.width === 0 && r.height === 0) return
+      plugin.setVideoRect({ x: r.left, y: r.top, width: r.width, height: r.height }).catch(() => {})
+    }
+
+    sync() // initial sync
+
+    const ro = new ResizeObserver(sync)
+    if (videoContainerRef.current) ro.observe(videoContainerRef.current)
+    window.addEventListener('scroll', sync, true)
+
+    return () => {
+      ro.disconnect()
+      window.removeEventListener('scroll', sync, true)
+    }
+  }, [isAndroid, isFullscreen])
+
+  // ── Android: native player load + event listeners ──
+  useEffect(() => {
+    if (!isAndroid) return  // non-Android uses HLS.js/mpegts.js below
+    const plugin = getNativePlayer()
+    if (!plugin || !effectiveUrl) return
+
+    let cancelled = false
+    nativePlayerRef.current = true
+
+    setLoading(true)
+    setError(null)
+    setReconnecting(false)
+
+    // Push the current video rect to the native SurfaceView immediately.
+    // The ResizeObserver sync runs when the effect mounts (isAndroid, isFullscreen deps),
+    // but nativePlayerRef.current is false at that point and the rect may be zero.
+    // Re-sync here now that the player is active and the layout has settled.
+    if (videoContainerRef.current) {
+      const r = videoContainerRef.current.getBoundingClientRect()
+      if (r.width > 0 || r.height > 0) {
+        plugin.setVideoRect({ x: r.left, y: r.top, width: r.width, height: r.height }).catch(() => {})
+      }
+    }
+
+    // Load the stream into ExoPlayer
+    plugin.load({ url: effectiveUrl }).catch((e: any) => {
+      if (!cancelled) setError(e?.message ?? 'Failed to load stream')
+    })
+
+    // Listen to native events
+    const listeners: { remove: () => void }[] = []
+
+    plugin.addListener('nativePlayerReady', (data: any) => {
+      if (cancelled) return
+      setLoading(false)
+      setIsLive(!!data.isLive)
+    }).then((l: any) => listeners.push(l))
+
+    plugin.addListener('nativePlayerError', (data: any) => {
+      if (cancelled) return
+      setLoading(false)
+      setError(data.message || 'Playback error')
+    }).then((l: any) => listeners.push(l))
+
+    plugin.addListener('nativePlayerTrackInfo', (data: any) => {
+      if (cancelled) return
+      const audioTracks = (data.audioTracks || []).map((t: any) => ({
+        id: t.id ?? 0,
+        name: t.name || `Audio ${(t.id ?? 0) + 1}`,
+        lang: t.lang || '',
+      }))
+      const subtitleTracks = (data.subtitleTracks || []).map((t: any) => ({
+        id: t.id ?? 0,
+        name: t.name || `Sub ${(t.id ?? 0) + 1}`,
+        lang: t.lang || '',
+      }))
+      setAudioTracks(audioTracks)
+      setSubtitleTracks(subtitleTracks)
+    }).then((l: any) => listeners.push(l))
+
+    plugin.addListener('nativePlayerStreamInfo', (data: any) => {
+      if (cancelled) return
+      setStreamInfo({
+        resolution: data.resolution || undefined,
+        fps: data.fps ? `${data.fps}fps` : undefined,
+        codec: data.codec || undefined,
+        bitrate: data.bitrate ? `${Math.round(data.bitrate / 1000)} Kbps` : undefined,
+      })
+    }).then((l: any) => listeners.push(l))
+
+    plugin.addListener('nativePlayerTimeUpdate', (data: any) => {
+      if (cancelled) return
+      setCurrentTime(data.currentTime ?? 0)
+      setDuration(data.duration ?? 0)
+    }).then((l: any) => listeners.push(l))
+
+    plugin.addListener('nativePlayerStateChange', (data: any) => {
+      if (cancelled) return
+      if (data.state === 'buffering') setLoading(true)
+      else setLoading(false)
+    }).then((l: any) => listeners.push(l))
+
+    return () => {
+      cancelled = true
+      nativePlayerRef.current = false
+      plugin.stop().catch(() => {})
+      listeners.forEach((l) => l.remove?.())
+    }
+  }, [effectiveUrl, isAndroid])
+
+  // Load stream (WebView path — skipped on Android which uses native ExoPlayer above)
+  useEffect(() => {
+    if (isAndroid) return  // Android uses native ExoPlayer effect above
     const video = videoRef.current
     if (!video || !effectiveUrl) return
 
@@ -440,6 +639,9 @@ export default function Player(): JSX.Element {
     // Apply volume/mute before any play() fires
     video.volume = volume
     video.muted = isMuted
+
+    // Flag set in the native <video> (VOD) branch to suppress live-only reconnect on end
+    let vodPath = false
 
     // ── URL type detection ─────────────────────────────────────────
     // Three playback paths:
@@ -671,7 +873,13 @@ export default function Player(): JSX.Element {
 
     } else {
       // ── Native video element (MP4, MKV, direct streams) ──────────
-      video.src = effectiveUrl
+      vodPath = true
+      // Route through local ffmpeg proxy so AC3/EAC3/DTS audio is transcoded
+      // to AAC before Chromium receives it — bypasses Electron's stripped ffmpeg
+      const vodSrc = vodProxyPortRef.current
+        ? `http://127.0.0.1:${vodProxyPortRef.current}/transcode?url=${encodeURIComponent(effectiveUrl)}`
+        : effectiveUrl
+      video.src = vodSrc
       setIsLive(false)
 
       // Detect resolution + audio codec support once metadata is loaded
@@ -687,6 +895,16 @@ export default function Player(): JSX.Element {
           codec: audioHint,
           bitrate: undefined,
         })
+        // Enumerate native audio tracks for multi-audio VOD content
+        const nativeTracks = (video as any).audioTracks
+        if (nativeTracks && nativeTracks.length > 1) {
+          const tracks = Array.from({ length: nativeTracks.length }, (_, i) => ({
+            id: i,
+            name: (nativeTracks[i] as any).label || (nativeTracks[i] as any).language || `Audio ${i + 1}`,
+            lang: (nativeTracks[i] as any).language || '',
+          }))
+          setAudioTracks(tracks)
+        }
       }
       video.addEventListener('loadedmetadata', onLoadedMetadata, { once: true })
 
@@ -694,7 +912,13 @@ export default function Player(): JSX.Element {
       const onCanPlay = () => {
         if (cancelled) return
         setLoading(false)
-        video.play().catch((e: Error) => {
+        video.play().then(() => {
+          // Re-assert volume/muted: autoplay policy may have silently muted the element
+          if (!cancelled) {
+            video.volume = volume
+            video.muted = isMuted
+          }
+        }).catch((e: Error) => {
           if (cancelled || e.name === 'AbortError') return
           const msg = String(e)
           if (msg.includes('NotSupportedError') || msg.includes('no supported source')) {
@@ -718,7 +942,7 @@ export default function Player(): JSX.Element {
     }
     const onWaiting = () => { if (!cancelled) scheduleReconnect() }
     const onStalled = () => { if (!cancelled) scheduleReconnect() }
-    const onEnded = () => { if (!cancelled) scheduleReconnect(3000) }
+    const onEnded = () => { if (!cancelled && !vodPath) scheduleReconnect(3000) }
     const onError = () => {
       if (cancelled) return
       const err = video.error
@@ -844,8 +1068,9 @@ export default function Player(): JSX.Element {
       ref={containerRef}
       data-tv-player
       tabIndex={isTV ? 0 : undefined}
-      className="relative w-full h-full bg-black"
+      className={`relative w-full h-full ${isAndroid ? '' : 'bg-black'}`}
       onMouseMove={resetControlsTimer}
+      onPointerDown={resetControlsTimer}
       onMouseLeave={() => isPlaying && setShowControls(false)}
       onDoubleClick={() => setFullscreen(!isFullscreen)}
       onFocus={() => { setPlayerFocused(true); resetControlsTimer() }}
@@ -894,16 +1119,25 @@ export default function Player(): JSX.Element {
         </div>
       )}
 
-      <video
-        ref={videoRef}
-        className="w-full h-full"
-        style={{ objectFit: 'contain' }}
-        playsInline
-        tabIndex={-1}
-      />
+      {isAndroid ? (
+        /* Android: transparent placeholder div — ExoPlayer SurfaceView renders behind the WebView */
+        <div
+          ref={videoContainerRef}
+          className="w-full h-full"
+          style={{ background: 'transparent' }}
+        />
+      ) : (
+        <video
+          ref={videoRef}
+          className="w-full h-full"
+          style={{ objectFit: 'contain' }}
+          playsInline
+          tabIndex={-1}
+        />
+      )}
 
       {/* Loading spinner */}
-      {usePlayerStore.getState().isLoading && (
+      {isLoading && (
         <div className="absolute inset-0 flex items-center justify-center">
           <div
             className="w-10 h-10 rounded-full border-2 animate-spin"
@@ -913,7 +1147,7 @@ export default function Player(): JSX.Element {
       )}
 
       {/* Reconnecting badge — shown during stall recovery, hides once playback resumes */}
-      {reconnecting && !usePlayerStore.getState().isLoading && (
+      {reconnecting && !isLoading && (
         <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
           <div
             className="flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium text-white"

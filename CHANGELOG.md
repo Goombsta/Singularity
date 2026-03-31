@@ -4,6 +4,32 @@
 
 ---
 
+## v1.4.3
+
+### Bug Fixes
+
+#### 1 — VOD audio silent on AC3/EAC3/DTS content (primary fix)
+- VOD streams with Dolby Digital (AC3), Dolby Digital Plus (EAC3), or DTS audio played video with no sound — Chromium's bundled ffmpeg omits proprietary audio decoders
+- Added a local HTTP transcoding proxy (`vodProxy.ts`) in the main process using `ffmpeg-static`: VOD URLs are routed through `http://127.0.0.1:{port}/transcode?url=...`, ffmpeg copies video unchanged and transcodes audio to AAC before Chromium receives it
+- Proxy starts on a random localhost port at app launch; active ffmpeg processes are killed when the client disconnects or the app exits
+- Removed the broken `afterPack` NW.js ffmpeg.dll replacement hook (NW.js binary was ABI-incompatible with Electron 33 at runtime despite appearing to replace the file)
+- Added `asarUnpack: node_modules/ffmpeg-static/**` to `electron-builder.yml` so the ffmpeg binary is accessible outside the asar archive in production builds
+
+#### 2 — VOD could silently stay muted after autoplay
+- Chromium's autoplay policy can silently mute a video element at the point `play()` is called; the React `isMuted` state remained `false` with no correction
+- `onCanPlay` now chains `.then()` after `video.play()` to re-assert `video.volume` and `video.muted` immediately after playback starts
+
+#### 3 — VOD looped indefinitely after playback ended
+- `onEnded` called `scheduleReconnect(3000)` unconditionally — correct for live streams but caused VOD content to reload and replay in a loop
+- Added a `vodPath` flag (set in the native `<video>` branch); `onEnded` only reconnects when `!vodPath`
+
+#### 4 — Multi-audio VOD tracks not enumerable or switchable
+- Native `<video>` audio tracks were never enumerated for VOD content; the audio track picker showed nothing and track switching was silently ignored
+- `onLoadedMetadata` now reads `video.audioTracks` and populates the store when more than one track is present
+- Audio track switching `useEffect` now handles the native `AudioTrackList` API (toggle `.enabled`) when `hlsRef.current` is null (VOD path)
+
+---
+
 ## v1.4.2
 
 ### Features & Improvements

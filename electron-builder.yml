@@ -6,8 +6,9 @@ directories:
 files:
   - out/**/*
   - '!out/**/*.map'
-# Replace stripped Electron FFmpeg with full-codec NW.js prebuilt (enables AC3/EAC3/DTS audio)
-afterPack: scripts/afterPack.js
+# Unpack ffmpeg-static binary from the asar archive so the main process can spawn it
+asarUnpack:
+  - node_modules/ffmpeg-static/**
 win:
   target:
     - target: nsis
