@@ -686,8 +686,24 @@ export default function Player(): JSX.Element {
       (effectiveUrl.includes('/live/') && !effectiveUrl.endsWith('.ts'))
     const isMpegTs = effectiveUrl.endsWith('.ts')
 
+    // CSS-pixel rect of the player element — used by all MPV branches
+    const getBounds = (): { left: number; top: number; width: number; height: number } => {
+      const el = videoRef.current ?? videoContainerRef.current
+      if (!el) return { left: 0, top: 0, width: 800, height: 450 }
+      const r = el.getBoundingClientRect()
+      return {
+        left: Math.round(r.left),
+        top: Math.round(r.top),
+        width: Math.round(r.width),
+        height: Math.round(r.height),
+      }
+    }
+
     if (isHls && Hls.isSupported()) {
       // ── HLS / TS playback via HLS.js ───────────────────────────
+      // Stop any MPV window from a previous channel — MPV is a fallback, not primary
+      ;(window.api as any)?.mpv?.stop?.()
+      isMpvModeRef.current = false
       const hls = new Hls({
         enableWorker: true,
         backBufferLength: 30,
@@ -817,19 +833,46 @@ export default function Player(): JSX.Element {
           video.addEventListener('canplay', () => clearTimeout(fallbackTimer), { once: true })
         }
 
-        // On manifest timeout, attempt native <video> fallback before giving up.
+        // MPV fallback — used when hls.js hits an unrecoverable error and MPV is available
+        const fallbackToMpv = (): void => {
+          isMpvModeRef.current = true
+          setIsLive(true)
+          ;(async () => {
+            try {
+              const { useSettingsStore } = await import('../stores/settingsStore')
+              const { settings } = useSettingsStore.getState()
+              await (window.api as any).mpv.start(effectiveUrl, getBounds(), settings.externalPlayers)
+              if (cancelled) { ;(window.api as any).mpv.stop(); return }
+              setLoading(false)
+              ;(window.api as any).mpv.onTimePos((t: number) => { if (!cancelled) setCurrentTime(t) })
+              const el = videoRef.current ?? videoContainerRef.current
+              if (el) {
+                const ro = new ResizeObserver(() => { if (!cancelled) (window.api as any).mpv.setBounds(getBounds()) })
+                ro.observe(el)
+              }
+            } catch {
+              if (cancelled) return
+              isMpvModeRef.current = false
+              setError('Stream unavailable — the channel may be offline or unsupported.')
+              setLoading(false)
+            }
+          })()
+        }
+
+        // On manifest timeout, try MPV first, then native <video> fallback.
         // Some Xtream /live/ URLs serve a direct MPEG-TS stream rather than an
-        // HLS playlist — native playback handles these without needing a manifest.
+        // HLS playlist — both MPV and native playback handle these without a manifest.
         if (data.details === 'manifestLoadTimeOut') {
+          if ((window.api as any)?.mpv) { hls.destroy(); hlsRef.current = null; fallbackToMpv(); return }
           fallbackToNative('Stream unavailable — the channel may be offline or geo-blocked.')
           return
         }
 
         // AC-3 / EAC-3 (Dolby Digital) audio: Chromium's MSE rejects the
         // 'audio/mp4;codecs=ac-3' SourceBuffer type even with the full-codec
-        // ffmpeg.dll. Fall back to native <video> which uses ffmpeg directly
-        // and supports AC-3/EAC-3/DTS out of the box in the packaged build.
+        // ffmpeg.dll. Try MPV first (handles AC-3 natively), then native <video>.
         if (data.details === 'bufferAddCodecError') {
+          if ((window.api as any)?.mpv) { hls.destroy(); hlsRef.current = null; fallbackToMpv(); return }
           const isAndroid = window.api?.platform === 'android'
           fallbackToNative(isAndroid
             ? 'AC-3/Dolby audio is not supported in the built-in player — try an external player.'
@@ -848,11 +891,15 @@ export default function Player(): JSX.Element {
           hls.recoverMediaError()
           return
         }
+        // Other fatal errors — try MPV, else show error
+        if ((window.api as any)?.mpv) { hls.destroy(); hlsRef.current = null; fallbackToMpv(); return }
         setError('Stream error — the channel may be offline or temporarily unavailable.')
         setLoading(false)
       })
     } else if (isMpegTs) {
       // ── mpegts.js — raw MPEG-TS over HTTP ────────────────────────
+      ;(window.api as any)?.mpv?.stop?.()
+      isMpvModeRef.current = false
       // Handles live IPTV .ts streams that HLS.js can't manifest-load
       // and Chromium can't decode natively (video/mp2t removed in Chrome 47).
       // Do NOT gate on mpegts.isSupported() — it checks MediaSource.isTypeSupported
@@ -918,21 +965,6 @@ export default function Player(): JSX.Element {
         isMpvModeRef.current = true
         isVodProxyRef.current = false
 
-        // Send CSS-pixel rect relative to the Electron content area.
-        // Use videoRef (the <video> element) — it always has the correct bounds at this point.
-        // Main process converts to physical screen pixels via getContentBounds() + scaleFactor.
-        const getBounds = (): { left: number; top: number; width: number; height: number } => {
-          const el = videoRef.current ?? videoContainerRef.current
-          if (!el) return { left: 0, top: 0, width: 800, height: 450 }
-          const r = el.getBoundingClientRect()
-          return {
-            left: Math.round(r.left),
-            top: Math.round(r.top),
-            width: Math.round(r.width),
-            height: Math.round(r.height),
-          }
-        }
-
         ;(async () => {
           try {
             const { useSettingsStore } = await import('../stores/settingsStore')
@@ -962,6 +994,8 @@ export default function Player(): JSX.Element {
 
         // Skip HLS proxy setup entirely for MPV-routed streams
       } else {
+        // Stop any running MPV — this stream uses the VOD proxy instead
+        ;(window.api as any)?.mpv?.stop?.()
         isVodProxyRef.current = true
         if (needsMpv) {
           // mpv API not available (web/Android build) — fall back to encode
@@ -1153,9 +1187,10 @@ export default function Player(): JSX.Element {
       isVodProxyRef.current = false
       startVodHlsRef.current = null
       if (isMpvModeRef.current) {
-        ;(window.api as any)?.mpv?.stop?.()
         ;(window.api as any)?.mpv?.offTimePos?.()
         isMpvModeRef.current = false
+        // MPV process is NOT stopped here — startMpv reuses it via loadfile on next MPV channel.
+        // hls.js, mpegts.js, and VOD proxy branches each call mpv.stop() at their entry point.
       }
     }
   }, [effectiveUrl])

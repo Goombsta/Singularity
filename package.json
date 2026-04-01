@@ -1,6 +1,6 @@
 {
   "name": "singularity",
-  "version": "1.5.0",
+  "version": "1.5.1",
   "description": "Singularity IPTV Player",
   "main": "out/main/index.js",
   "author": "Singularity",

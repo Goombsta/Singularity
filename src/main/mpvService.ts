@@ -52,6 +52,12 @@ export function startMpv(
   bounds: { x: number; y: number; width: number; height: number },
   externalPlayers: { name: string; path: string }[],
 ): Promise<void> {
+  // If MPV is already running, reuse the window via loadfile — no respawn, instant switch
+  if (ipcClient) {
+    setBoundsMpv(bounds)
+    sendCommand(['loadfile', url, 'replace'])
+    return Promise.resolve()
+  }
   return new Promise((resolve, reject) => {
     stopMpv()
     const mpvBin = findMpv(externalPlayers)

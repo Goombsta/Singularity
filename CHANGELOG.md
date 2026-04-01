@@ -4,6 +4,14 @@
 
 ---
 
+## v1.5.1
+
+### Fix: Live TV .m3u8 streams now play via MPV
+
+Live TV HLS streams (`.m3u8`) were not playing in the built-in hls.js player. They now route through MPV's native HLS support, bypassing Chromium's MSE pipeline entirely. hls.js remains as a fallback if MPV is not available.
+
+---
+
 ## v1.5.0
 
 ### New Feature: MPV Native Player for MKV/AVI/MOV/WMV/FLV/WebM VOD
