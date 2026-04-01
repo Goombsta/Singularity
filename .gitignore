@@ -5,3 +5,5 @@ dist/
 *.log
 .env
 .env.*
+# Downloaded binaries — fetched by scripts/download-mpv.js at build time
+resources/win/
