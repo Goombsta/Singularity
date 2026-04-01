@@ -262,8 +262,22 @@ export default function Player(): JSX.Element {
   const videoContainerRef = useRef<HTMLDivElement>(null)
   const nativePlayerRef = useRef<boolean>(false)
 
-  // VOD proxy port — resolved once on mount from the main process
+  // Proxy port — used to build /probe URL for VOD duration
   const vodProxyPortRef = useRef<number | null>(null)
+  // Active HLS session ID — used to stop ffmpeg when channel changes
+  const vodHlsSessionRef = useRef<string | null>(null)
+  // Seek offset: video.currentTime is relative to the HLS session start, not the full stream
+  const vodSeekOffsetRef = useRef<number>(0)
+  // Whether to force H.264 encode (true for HEVC/MPEG-2/other non-H.264 sources)
+  const vodForceEncodeRef = useRef<boolean>(false)
+  // Stable ref to the current effectiveUrl so handleVodSeek closure stays fresh
+  const effectiveUrlRef = useRef<string>('')
+  // Ref exposing startVodHls to onError callback (defined inside useEffect)
+  const startVodHlsRef = useRef<((seekTime?: number) => void) | null>(null)
+  // Whether the current stream is routed through the VOD proxy (vs native HLS)
+  const isVodProxyRef = useRef<boolean>(false)
+  // Whether the current stream is being played by MPV (bypasses hls.js + MSE entirely)
+  const isMpvModeRef = useRef<boolean>(false)
 
   // Episode URL override for series (local state — doesn't touch playerStore)
   const [episodeUrl, setEpisodeUrl] = useState<string | null>(null)
@@ -315,6 +329,11 @@ export default function Player(): JSX.Element {
   useEffect(() => {
     setEpisodeUrl(null)
     setEpisodeTitle(null)
+    // Stop any active HLS session for the previous channel
+    if (vodHlsSessionRef.current) {
+      ;(window.api as any)?.vod?.stopHls?.(vodHlsSessionRef.current).catch(() => {})
+      vodHlsSessionRef.current = null
+    }
   }, [channel?.id])
 
   // Stalker URL resolution — get a fresh token + create_link on every channel change
@@ -423,6 +442,11 @@ export default function Player(): JSX.Element {
       }
       return
     }
+    if (isMpvModeRef.current) {
+      if (isPaused) (window.api as any)?.mpv?.pause?.()
+      else if (isPlaying) (window.api as any)?.mpv?.resume?.()
+      return
+    }
     const video = videoRef.current
     if (!video) return
     if (isPaused) {
@@ -439,6 +463,9 @@ export default function Player(): JSX.Element {
     : channel?.stalkerCmd
       ? stalkerUrl   // null until create_link resolves — keeps player from loading localhost
       : url
+
+  // Keep ref in sync so handleVodSeek closure is always fresh
+  effectiveUrlRef.current = effectiveUrl ?? ''
 
   // When the URL is cleared (e.g. playlist switch → stop()), tear down immediately
   useEffect(() => {
@@ -872,67 +899,196 @@ export default function Player(): JSX.Element {
       }
 
     } else {
-      // ── Native video element (MP4, MKV, direct streams) ──────────
+      // ── VOD (MP4, MKV, Xtream VOD) — route through HLS proxy ─────
+      // hls.js handles all seeking natively via MSE; no video.src reload needed
       vodPath = true
-      // Route through local ffmpeg proxy so AC3/EAC3/DTS audio is transcoded
-      // to AAC before Chromium receives it — bypasses Electron's stripped ffmpeg
-      const vodSrc = vodProxyPortRef.current
-        ? `http://127.0.0.1:${vodProxyPortRef.current}/transcode?url=${encodeURIComponent(effectiveUrl)}`
-        : effectiveUrl
-      video.src = vodSrc
       setIsLive(false)
 
-      // Detect resolution + audio codec support once metadata is loaded
-      const onLoadedMetadata = () => {
-        if (cancelled) return
-        const h = video.videoHeight
-        const qualityMap: [number, string][] = [[2160,'4K'],[1440,'1440p'],[1080,'1080p'],[720,'720p'],[480,'480p'],[360,'360p']]
-        const quality = h ? (qualityMap.find(([t]) => h >= t)?.[1] ?? `${h}p`) : undefined
-        const ac3 = video.canPlayType('audio/ac3') || video.canPlayType('audio/x-ac3') || video.canPlayType('audio/eac3')
-        const audioHint = ac3 ? undefined : 'AC3/EAC3 audio may be unsupported — use packaged build'
-        setStreamInfo({
-          resolution: quality,
-          codec: audioHint,
-          bitrate: undefined,
-        })
-        // Enumerate native audio tracks for multi-audio VOD content
-        const nativeTracks = (video as any).audioTracks
-        if (nativeTracks && nativeTracks.length > 1) {
-          const tracks = Array.from({ length: nativeTracks.length }, (_, i) => ({
-            id: i,
-            name: (nativeTracks[i] as any).label || (nativeTracks[i] as any).language || `Audio ${i + 1}`,
-            lang: (nativeTracks[i] as any).language || '',
-          }))
-          setAudioTracks(tracks)
-        }
-      }
-      video.addEventListener('loadedmetadata', onLoadedMetadata, { once: true })
+      // Reset seek state when starting a new channel/episode
+      vodSeekOffsetRef.current = 0
+      vodForceEncodeRef.current = false
 
-      // canplay fires once enough data is buffered to start playback
-      const onCanPlay = () => {
-        if (cancelled) return
-        setLoading(false)
-        video.play().then(() => {
-          // Re-assert volume/muted: autoplay policy may have silently muted the element
-          if (!cancelled) {
-            video.volume = volume
-            video.muted = isMuted
+      // Containers that need native hardware decoding — route to MPV instead of hls.js
+      const FORCE_ENCODE_CONTAINERS = ['.mkv', '.avi', '.mov', '.wmv', '.flv', '.webm']
+      const needsMpv = effectiveUrl
+        ? FORCE_ENCODE_CONTAINERS.some((ext) => effectiveUrl.toLowerCase().includes(ext))
+        : false
+
+      if (needsMpv && (window.api as any)?.mpv) {
+        isMpvModeRef.current = true
+        isVodProxyRef.current = false
+
+        // Send CSS-pixel rect relative to the Electron content area.
+        // Use videoRef (the <video> element) — it always has the correct bounds at this point.
+        // Main process converts to physical screen pixels via getContentBounds() + scaleFactor.
+        const getBounds = (): { left: number; top: number; width: number; height: number } => {
+          const el = videoRef.current ?? videoContainerRef.current
+          if (!el) return { left: 0, top: 0, width: 800, height: 450 }
+          const r = el.getBoundingClientRect()
+          return {
+            left: Math.round(r.left),
+            top: Math.round(r.top),
+            width: Math.round(r.width),
+            height: Math.round(r.height),
           }
-        }).catch((e: Error) => {
-          if (cancelled || e.name === 'AbortError') return
-          const msg = String(e)
-          if (msg.includes('NotSupportedError') || msg.includes('no supported source')) {
-            setError('Format not supported — try opening in an external player (VLC).')
+        }
+
+        ;(async () => {
+          try {
+            const { useSettingsStore } = await import('../stores/settingsStore')
+            const { settings } = useSettingsStore.getState()
+            const result = await (window.api as any).mpv.start(
+              effectiveUrl,
+              getBounds(),
+              settings.externalPlayers,
+            )
+            if (cancelled) { ;(window.api as any).mpv.stop(); return }
+            if (result?.duration) setDuration(result.duration)
+            setLoading(false)
+            ;(window.api as any).mpv.onTimePos((t: number) => { if (!cancelled) setCurrentTime(t) })
+            // Observe the video element for size/position changes and reposition MPV
+            const observeTarget = videoRef.current ?? videoContainerRef.current
+            const ro = new ResizeObserver(() => {
+              if (!cancelled) (window.api as any).mpv.setBounds(getBounds())
+            })
+            if (observeTarget) ro.observe(observeTarget)
+          } catch {
+            if (cancelled) return
+            isMpvModeRef.current = false
+            setError('MPV not found — install from mpv.io or add it to External Players in Settings.')
+            setLoading(false)
+          }
+        })()
+
+        // Skip HLS proxy setup entirely for MPV-routed streams
+      } else {
+        isVodProxyRef.current = true
+        if (needsMpv) {
+          // mpv API not available (web/Android build) — fall back to encode
+          vodForceEncodeRef.current = true
+        }
+
+      const startVodHls = async (seekTime = 0) => {
+        // Stop any previous HLS session before starting a new one
+        if (vodHlsSessionRef.current) {
+          ;(window.api as any)?.vod?.stopHls?.(vodHlsSessionRef.current).catch(() => {})
+          vodHlsSessionRef.current = null
+        }
+
+        let playlistUrl: string
+        let sessionId: string | null = null
+
+        try {
+          const result = await (window.api as any)?.vod?.startHls?.(effectiveUrl, {
+            seekTime: seekTime > 0 ? seekTime : undefined,
+            forceEncode: vodForceEncodeRef.current || undefined,
+          })
+          if (cancelled) return
+          if (result?.playlistUrl) {
+            playlistUrl = result.playlistUrl
+            sessionId = result.sessionId
+            vodHlsSessionRef.current = sessionId
           } else {
-            setError(msg)
+            // No proxy available (web build / Android) — fall back to direct src
+            video.src = effectiveUrl
+            video.addEventListener('canplay', () => {
+              if (!cancelled) { setLoading(false); video.play().catch(() => {}) }
+            }, { once: true })
+            return
+          }
+        } catch {
+          if (cancelled) return
+          if (!vodForceEncodeRef.current) {
+            // Copy-mode failed (codec incompatible with MPEG-TS) — retry with H.264 encode
+            vodForceEncodeRef.current = true
+            startVodHls(seekTime)
+            return
+          }
+          // Both copy and encode failed — show error, do not load container URL directly
+          setError('VOD stream unavailable — try opening in an external player (VLC).')
+          setLoading(false)
+          return
+        }
+
+        if (!Hls.isSupported()) {
+          // hls.js not supported (shouldn't happen in Electron) — direct src fallback
+          video.src = playlistUrl
+          video.addEventListener('canplay', () => {
+            if (!cancelled) { setLoading(false); video.play().catch(() => {}) }
+          }, { once: true })
+          return
+        }
+
+        const hls = new Hls({ enableWorker: false })
+        hlsRef.current = hls
+
+        hls.on(Hls.Events.MANIFEST_PARSED, () => {
+          if (cancelled) return
+          // Probe for accurate duration (codec handling is done via extension detection + error retry)
+          const port = vodProxyPortRef.current
+          if (port && seekTime === 0) {
+            fetch(`http://127.0.0.1:${port}/probe?url=${encodeURIComponent(effectiveUrl)}`)
+              .then((r) => r.json())
+              .then(({ duration }: { duration: number | null }) => {
+                if (!cancelled && duration) setDuration(duration)
+              })
+              .catch(() => {})
+          }
+          setLoading(false)
+          video.play().then(() => {
+            if (!cancelled) { video.volume = volume; video.muted = isMuted }
+          }).catch((e: Error) => {
+            if (cancelled || e.name === 'AbortError') return
+            setError(String(e))
+          })
+        })
+
+        // fMP4 safety net: MANIFEST_PARSED fires before init.mp4 is fetched, so the
+        // pending video.play() may never resolve if MSE has no data yet. Once the
+        // first fragment is actually buffered we know MSE is ready — retry play().
+        hls.once(Hls.Events.FRAG_BUFFERED, () => {
+          if (!cancelled && video.paused) {
+            video.play().catch(() => {})
           }
         })
+
+        hls.on(Hls.Events.ERROR, (_evt, data) => {
+          if (cancelled || !data.fatal) return
+          if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
+            hls.startLoad()
+          } else if (data.type === Hls.ErrorTypes.MEDIA_ERROR && !vodForceEncodeRef.current) {
+            // Codec copied into TS but MSE can't decode it (e.g. HEVC) — re-transcode to H.264
+            vodForceEncodeRef.current = true
+            hls.destroy()
+            hlsRef.current = null
+            startVodHls(vodSeekOffsetRef.current)
+          } else {
+            setError('VOD stream error — try opening in an external player (VLC).')
+          }
+        })
+
+        // Detect resolution once metadata arrives
+        video.addEventListener('loadedmetadata', () => {
+          if (cancelled) return
+          const h = video.videoHeight
+          const qualityMap: [number, string][] = [[2160,'4K'],[1440,'1440p'],[1080,'1080p'],[720,'720p'],[480,'480p'],[360,'360p']]
+          const quality = h ? (qualityMap.find(([t]) => h >= t)?.[1] ?? `${h}p`) : undefined
+          setStreamInfo({ resolution: quality, codec: undefined, bitrate: undefined })
+        }, { once: true })
+
+        hls.loadSource(playlistUrl)
+        hls.attachMedia(video)
       }
-      video.addEventListener('canplay', onCanPlay, { once: true })
+
+      startVodHlsRef.current = startVodHls
+      startVodHls()
+      } // end else (HLS proxy path)
     }
 
-    const onTimeUpdate = () => { if (!cancelled) setCurrentTime(video.currentTime) }
-    const onDurationChange = () => { if (!cancelled) setDuration(video.duration) }
+    const onTimeUpdate = () => { if (!cancelled) setCurrentTime(video.currentTime + vodSeekOffsetRef.current) }
+    const onDurationChange = () => {
+      if (!cancelled && isFinite(video.duration) && !vodPath) setDuration(video.duration)
+    }
     const onPlaying = () => {
       if (!cancelled) {
         setLoading(false)
@@ -940,16 +1096,23 @@ export default function Player(): JSX.Element {
         if (reconnectTimerRef.current) { clearTimeout(reconnectTimerRef.current); reconnectTimerRef.current = null }
       }
     }
-    const onWaiting = () => { if (!cancelled) scheduleReconnect() }
-    const onStalled = () => { if (!cancelled) scheduleReconnect() }
+    // VOD (hls.js) handles its own stall recovery — only reconnect for live streams
+    const onWaiting = () => { if (!cancelled && !vodPath) scheduleReconnect() }
+    const onStalled = () => { if (!cancelled && !vodPath) scheduleReconnect() }
     const onEnded = () => { if (!cancelled && !vodPath) scheduleReconnect(3000) }
     const onError = () => {
       if (cancelled) return
       const err = video.error
       if (!err) return
       if (err.code === MediaError.MEDIA_ERR_SRC_NOT_SUPPORTED) {
+        if (vodPath && !vodForceEncodeRef.current) {
+          // MSE rejected the stream — retry with forced H.264 transcode
+          vodForceEncodeRef.current = true
+          startVodHlsRef.current?.(vodSeekOffsetRef.current)
+          return
+        }
         setError('Format not supported — try opening in an external player (VLC).')
-      } else if (err.code !== MediaError.MEDIA_ERR_ABORTED) {
+      } else if (err.code !== MediaError.MEDIA_ERR_ABORTED && !vodPath) {
         scheduleReconnect()
       }
     }
@@ -982,6 +1145,18 @@ export default function Player(): JSX.Element {
         mpegtsRef.current.destroy()
         mpegtsRef.current = null
       }
+      // Stop HLS session if this was a VOD stream
+      if (vodHlsSessionRef.current) {
+        ;(window.api as any)?.vod?.stopHls?.(vodHlsSessionRef.current).catch(() => {})
+        vodHlsSessionRef.current = null
+      }
+      isVodProxyRef.current = false
+      startVodHlsRef.current = null
+      if (isMpvModeRef.current) {
+        ;(window.api as any)?.mpv?.stop?.()
+        ;(window.api as any)?.mpv?.offTimePos?.()
+        isMpvModeRef.current = false
+      }
     }
   }, [effectiveUrl])
 
@@ -1004,6 +1179,65 @@ export default function Player(): JSX.Element {
       // ignore
     }
   }, [effectiveUrl, url])
+
+  // VOD seek — restarts the HLS session at the requested position using ffmpeg -ss input seek.
+  // video.currentTime alone can't seek past segments that haven't been transcoded yet.
+  const handleVodSeek = useCallback(async (t: number) => {
+    if (isMpvModeRef.current) {
+      ;(window.api as any)?.mpv?.seek?.(t)
+      setCurrentTime(t)
+      return
+    }
+    if (!isVodProxyRef.current) {
+      // Native HLS VOD — hls.js handles seeking directly via currentTime
+      if (videoRef.current) videoRef.current.currentTime = t
+      setCurrentTime(t)
+      return
+    }
+    const url = effectiveUrlRef.current
+    if (!url) return
+    // Destroy current hls instance
+    if (hlsRef.current) { hlsRef.current.destroy(); hlsRef.current = null }
+    // Stop current session
+    if (vodHlsSessionRef.current) {
+      ;(window.api as any)?.vod?.stopHls?.(vodHlsSessionRef.current).catch(() => {})
+      vodHlsSessionRef.current = null
+    }
+    // Optimistically update UI so seek bar stays at t while the new session starts
+    vodSeekOffsetRef.current = t
+    setCurrentTime(t)
+    setLoading(true)
+    try {
+      const result = await (window.api as any)?.vod?.startHls?.(url, {
+        seekTime: t,
+        forceEncode: vodForceEncodeRef.current || undefined,
+      })
+      if (!result?.playlistUrl) return
+      vodHlsSessionRef.current = result.sessionId
+      const video = videoRef.current
+      if (!video) return
+      if (!Hls.isSupported()) {
+        video.src = result.playlistUrl
+        video.addEventListener('canplay', () => { setLoading(false); video.play().catch(() => {}) }, { once: true })
+        return
+      }
+      const hls = new Hls({ enableWorker: false })
+      hlsRef.current = hls
+      hls.on(Hls.Events.MANIFEST_PARSED, () => {
+        setLoading(false)
+        video.play().catch(() => {})
+      })
+      hls.on(Hls.Events.ERROR, (_evt, data) => {
+        if (!data.fatal) return
+        if (data.type === Hls.ErrorTypes.NETWORK_ERROR) hls.startLoad()
+        else setError('VOD seek error — try opening in an external player (VLC).')
+      })
+      hls.loadSource(result.playlistUrl)
+      hls.attachMedia(video)
+    } catch {
+      setLoading(false)
+    }
+  }, [setCurrentTime, setLoading, setError])
 
   // On Android, auto-forward to the system player when the WebView can't decode the format.
   // This covers movies (MKV, HEVC, etc.) and series episodes with unsupported codecs.
@@ -1180,6 +1414,7 @@ export default function Player(): JSX.Element {
         visible={showControls || playerFocused}
         videoRef={videoRef}
         onToggleEpgOverlay={() => setShowEpgOverlay((v) => !v)}
+        onSeek={handleVodSeek}
       />
     </div>
   )

@@ -4,6 +4,153 @@
 
 ---
 
+## v1.5.0
+
+### New Feature: MPV Native Player for MKV/AVI/MOV/WMV/FLV/WebM VOD
+
+MKV and other container formats now play via **MPV** instead of the hls.js/MSE pipeline. MPV uses native hardware decoders and handles any codec or container without transcoding — the same approach as TiViMate on Android.
+
+**How it works:**
+- When a VOD URL contains a recognised container extension (`.mkv`, `.avi`, `.mov`, `.wmv`, `.flv`, `.webm`), MPV is spawned as a frameless always-on-top window positioned over the player div
+- MPV communicates via its JSON IPC named pipe (`\\.\pipe\singularity-mpv`): time position, seek, pause/resume all route through it
+- The existing PlayerControls overlay (seek bar, pause button) works transparently — commands are forwarded to MPV
+- A `ResizeObserver` repositions the MPV window when the app is resized or fullscreened
+- On channel change or close, MPV is terminated cleanly
+
+**MPV is not bundled.** Detection order:
+1. External player configured in Settings with "mpv" in the name
+2. `C:\Program Files\mpv\mpv.exe` or `%LOCALAPPDATA%\Programs\mpv\mpv.exe`
+3. `mpv` on PATH
+4. If not found: error toast shown, no crash
+
+All HLS, MPEG-TS, and plain MP4 streams continue to use the existing hls.js path unchanged.
+
+---
+
+## v1.4.9
+
+### Bug Fixes
+
+#### MKV VOD still fails with "Format not supported" even after v1.4.8 encode retry
+
+**Root cause:** Even with `-c:v libx264` output, hls.js's JavaScript MPEG-TS transmuxer has multiple failure modes that produce `MEDIA_ERR_SRC_NOT_SUPPORTED` before the browser ever sees the video: PES timestamp discontinuities from remuxed MKV sources, keyframe sync loss, and incorrect codec string detection from TS bitstream parsing. v1.4.8's retries all produced MPEG-TS segments, so none of them bypassed the transmuxer.
+
+**Fixes applied:**
+
+1. **fMP4 HLS segments** (`-hls_segment_type fmp4`): ffmpeg now produces fragmented MP4 (`.m4s`) segments instead of MPEG-TS. hls.js detects `fmp4` and skips its JS transmuxer entirely — segments go directly to MSE as `video/mp4`, which Chromium handles natively. Codec information comes from the MP4 `stsd` box (exact), not bitstream parsing.
+
+2. **H.264 profile/level constraints**: The `forceEncode` path now adds `-profile:v main -level:v 4.1` and `-vf scale=trunc(iw/2)*2:trunc(ih/2)*2`. This guarantees an MSE-compatible codec string (`avc1.4D4029`) and even dimensions (libx264 requirement), eliminating encode failures on odd-resolution sources.
+
+3. **Optional audio mapping** (`-map 0:a:0?`): MKV files with no audio stream previously caused ffmpeg to exit with code 1 before writing any segments. The `?` suffix makes the mapping skip gracefully if no audio stream exists.
+
+4. **`onError` retry via `startVodHlsRef`**: The `video` element `error` event handler now retries with `forceEncode = true` when `MEDIA_ERR_SRC_NOT_SUPPORTED` fires on a VOD stream (before the v1.4.9 fMP4 fix this was a dead path because `startVodHls` was unreachable from `onError`). `startVodHlsRef` is now assigned before `startVodHls()` is called.
+
+5. **HLS VOD seek routing fix**: The seek handler (`handleVodSeek`) was being called for native `.m3u8` VOD streams (e.g. Xtream `.m3u8` with `#EXT-X-ENDLIST`), incorrectly spinning up a VOD proxy session to re-transcode an already-HLS stream. A new `isVodProxyRef` flag ensures `handleVodSeek` does a direct `video.currentTime` seek for native HLS VOD and only starts a proxy session when actually in proxy mode.
+
+6. **File serving whitelist extended**: The proxy's file handler now allows `.mp4` (fMP4 init segment) and `.m4s` (fMP4 media segments) in addition to `.m3u8` and `.ts`.
+
+---
+
+## v1.4.8
+
+### Bug Fixes
+
+#### MKV (and other container) VOD files fail with "Format not supported"
+
+**Root cause:** The HLS proxy always started with `-c:v copy`. For `.mkv` files whose video track uses VP9, AV1, or other codecs that cannot be muxed into MPEG-TS, ffmpeg never produced a valid playlist. After a 15-second timeout, the code fell back to loading the raw `.mkv` URL directly in the `<video>` element — which Chromium cannot decode — triggering `MEDIA_ERR_SRC_NOT_SUPPORTED`.
+
+**Fixes applied:**
+
+1. **Container extension detection**: `.mkv`, `.avi`, `.mov`, `.wmv`, `.flv`, `.webm` URLs immediately set `forceEncode = true`, skipping the doomed copy attempt and transcoding to H.264/AAC from the first request. Eliminates the 15-second wait entirely for these formats.
+
+2. **Catch block retry**: When the proxy times out or fails (copy-mode ffmpeg crash), the catch block now retries once with `forceEncode = true` instead of loading the raw container URL into the browser. Only shows an error if the encode attempt also fails.
+
+3. **hls.js `MEDIA_ERROR` retry**: If a codec copies successfully into MPEG-TS but the browser's MSE cannot decode it (e.g. HEVC in TS), hls.js fires a fatal `MEDIA_ERROR`. The handler now retries with `forceEncode = true` rather than immediately showing an error.
+
+4. **Simplified probe**: Removed the unreliable codec-restart logic from `MANIFEST_PARSED` (it required the playlist to exist before detecting the codec). The probe now only sets accurate duration. Codec handling is fully covered by the three fixes above.
+
+---
+
+## v1.4.7
+
+### Bug Fixes
+
+#### 1 — VOD seeking resets to position 0 or freezes
+- Seeking now restarts the HLS session with ffmpeg `-ss` input seek instead of calling `video.currentTime = t` on a live-transcoding playlist
+- `handleVodSeek(t)` destroys the current hls.js instance, stops the ffmpeg session, then starts a new session with `seekTime: t`; playback resumes from the keyframe ≤ t
+- `vodSeekOffsetRef` tracks the session start position so `onTimeUpdate` reports the correct stream-absolute time and the seek bar stays accurate throughout playback
+
+#### 2 — "Format not supported" on HEVC / MPEG-2 / non-H.264 streams
+- MSE (used by hls.js) only decodes H.264/AVC video; `-c:v copy` silently passes incompatible codecs to the browser
+- The `/probe` endpoint now returns `videoCodec` alongside `duration`
+- On `MANIFEST_PARSED`, if the detected codec is not H.264/AVC, `vodForceEncodeRef` is set and the session is restarted with `-c:v libx264 -preset ultrafast -crf 23`
+- Subsequent seeks also pass `forceEncode: true` so the correct codec is used throughout the session
+
+### Security / Robustness
+
+- **URL scheme allowlist**: both `/hls` and `/probe` endpoints now reject `file://`, `data://`, and any non-HTTP/RTMP/RTSP scheme with a 400 response — prevents local file read via a malicious M3U8
+- **Session cap**: `hlsSessions` is capped at 10 concurrent sessions; the oldest session is evicted automatically on overflow — prevents ffmpeg process/disk exhaustion during rapid channel switching
+- **Playlist readiness check**: `waitForFile` now checks `fs.statSync().size > 50` instead of `fs.existsSync()` — prevents returning a 0-byte playlist to hls.js before ffmpeg has written the m3u8 header
+- **Probe orphan guard**: a `destroyed` flag prevents writing to a disconnected HTTP response when the client closes before ffmpeg finishes probing
+- **Removed dead HLS flag**: `delete_segments` was a no-op with `hls_list_size 0`; replaced with `temp_file` only (atomic segment writes on Windows)
+
+---
+
+## v1.4.6
+
+### Bug Fixes
+
+#### 1 — VOD seeking resets playback to beginning
+- Replaced fragmented MP4 streaming proxy with HLS local segmentation: ffmpeg now writes `.m3u8` + `.ts` segments to a per-session temp directory; hls.js (already used for live streams) serves as the VOD playback engine via MSE, enabling native `video.currentTime` seeking without reloading the stream
+- Each VOD session gets a unique ID; the ffmpeg process and temp directory are cleaned up when the user changes channel, seeks, or quits the app
+- Removed `handleVodSeek`, `vodProxyActiveRef`, `vodOriginalUrlRef`, `vodSeekOffsetRef`, and all proxy-reload seek logic from `Player.tsx`
+
+#### 2 — Audio/video sync drift over time
+- Added `-map 0:v:0 -map 0:a:0` for explicit stream selection
+- Added `-avoid_negative_ts make_zero` to normalize all PTS timestamps to a 0 baseline, fixing initial offset from `-ss` keyframe snapping
+- Added `-async 1` to continuously resample audio locked to the video clock throughout playback — replaces `-af aresample=async=1` which only corrected sample-rate mismatches
+
+#### 3 — Seek bar jitter and oscillation during playback
+- Replaced controlled React `<input type="range" value={currentTime}>` with a CSS progress bar + invisible range input overlay
+- The visual fill div is updated via `requestAnimationFrame` directly on a DOM ref — zero React re-renders during playback
+- The invisible `<input type="range">` handles all pointer and keyboard interaction; seek commits on `pointerup`
+- Removed `isDraggingSeek` and `dragSeekValue` state entirely
+
+---
+
+## v1.4.5
+
+### Bug Fixes
+
+#### 1 — VOD playback terminates prematurely at 60–120 seconds
+- When ffmpeg finishes writing the fragmented MP4 and closes the pipe, the browser fires `MEDIA_ERR_NETWORK` — previously this triggered `scheduleReconnect()`, reloading `video.src` from position 0
+- `onError` is now gated behind `!usingProxy`; pipe-close at end-of-file is normal termination for proxy streams and is silently ignored
+
+#### 2 — Audio/video sync drift over time
+- `-c:v copy` preserves original video PTS, but the AAC encoder introduces per-frame latency; without timestamp correction, audio and video clocks diverge progressively
+- Added `-af aresample=async=1` to the ffmpeg transcode args: the audio resampler continuously compensates for A/V timestamp mismatches, keeping audio locked to the video clock
+
+#### 3 — Seek bar jitter and oscillation during playback
+- The seek bar was a fully controlled React input (`value={currentTime}`); every `timeupdate` event (~4 Hz) triggered a Zustand → React re-render that reset the slider's DOM position, visibly fighting the user's pointer during drag
+- Added local `isDraggingSeek` / `dragSeekValue` state to `PlayerControls`; while the pointer is down the slider shows the local drag value and ignores `timeupdate` updates — seek is committed only on `pointerup`
+
+---
+
+## v1.4.4
+
+### Bug Fixes
+
+#### 1 — VOD seek bar oscillating / inaccurate duration / scrubbing resets to beginning
+- Seek bar oscillated because the proxy serves chunked fMP4 with no `Content-Length`, making `video.duration = Infinity`
+- New `/probe` endpoint in `vodProxy.ts` runs ffmpeg to extract the real duration from the stream before playback starts; `setDuration()` is called with the accurate value
+- `onDurationChange` is suppressed for proxy streams to prevent `Infinity` overwriting the probed value
+- Scrubbing reset to the beginning because `video.currentTime = t` on a chunked byte stream restarts the connection from offset 0
+- New `handleVodSeek` callback rebuilds the proxy URL with a `?start=N` parameter instead; the proxy uses `-ss N` for fast server-side keyframe seeking
+- `onTimeUpdate` now adds `vodSeekOffsetRef` to `video.currentTime` so the displayed position is always relative to the original file, not the current proxy segment
+- `onWaiting` / `onStalled` no longer trigger `scheduleReconnect` for proxy streams — buffering pauses are normal and reconnect was reloading `video.src` back to position 0
+
+---
+
 ## v1.4.3
 
 ### Bug Fixes

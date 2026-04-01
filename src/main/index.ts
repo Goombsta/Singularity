@@ -1,9 +1,25 @@
-import { app, shell, BrowserWindow, session, ipcMain } from 'electron'
+import { app, shell, BrowserWindow, session, ipcMain, screen } from 'electron'
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import { registerIpcHandlers } from './ipc'
 import * as castService from './castService'
-import { startVodProxy, stopVodProxy, getVodProxyPort } from './vodProxy'
+import { startVodProxy, stopVodProxy, stopAllHlsSessions, getVodProxyPort } from './vodProxy'
+import {
+  startMpv, stopMpv, seekMpv, pauseMpv, resumeMpv,
+  setBoundsMpv, getMpvDuration, setTimePosCallback, hideMpv, showMpv,
+} from './mpvService'
+
+/** Convert a CSS-pixel rect (relative to Electron content area) to physical screen pixels */
+function computePhysicalBounds(cssRect: { left: number; top: number; width: number; height: number }): { x: number; y: number; width: number; height: number } {
+  const cb = mainWindow!.getContentBounds()
+  const dpr = screen.getDisplayNearestPoint({ x: cb.x, y: cb.y }).scaleFactor
+  return {
+    x: Math.round(cb.x + cssRect.left * dpr),
+    y: Math.round(cb.y + cssRect.top * dpr),
+    width: Math.round(cssRect.width * dpr),
+    height: Math.round(cssRect.height * dpr),
+  }
+}
 
 let mainWindow: BrowserWindow | null = null
 
@@ -45,6 +61,9 @@ function createWindow(): void {
   mainWindow.on('ready-to-show', () => {
     mainWindow?.show()
   })
+
+  mainWindow.on('minimize', () => hideMpv())
+  mainWindow.on('restore', () => showMpv())
 
   mainWindow.webContents.setWindowOpenHandler((details) => {
     // Only open URLs with safe schemes — blocks custom protocol handler exploits
@@ -98,6 +117,35 @@ app.whenReady().then(() => {
 
   registerIpcHandlers()
   ipcMain.handle('vod:proxyPort', () => getVodProxyPort())
+  ipcMain.handle('vod:startHls', async (_event, url: string, opts?: { seekTime?: number; forceEncode?: boolean }) => {
+    const port = getVodProxyPort()
+    if (!port) throw new Error('VOD proxy not running')
+    const params = new URLSearchParams({ url })
+    if (opts?.seekTime) params.set('seekTime', String(opts.seekTime))
+    if (opts?.forceEncode) params.set('forceEncode', 'true')
+    const res = await fetch(`http://127.0.0.1:${port}/hls?${params}`, { method: 'POST' })
+    if (!res.ok) throw new Error(`Proxy error: ${res.status}`)
+    return res.json() as Promise<{ sessionId: string; playlistUrl: string }>
+  })
+  ipcMain.handle('vod:stopHls', (_event, sessionId: string) => {
+    const port = getVodProxyPort()
+    if (!port) return
+    fetch(`http://127.0.0.1:${port}/hls/${sessionId}`, { method: 'DELETE' }).catch(() => {})
+  })
+
+  // ── MPV native player ─────────────────────────────────────────────────────
+  ipcMain.handle('mpv:start', async (_e, url: string, cssRect: { left: number; top: number; width: number; height: number }, externalPlayers: { name: string; path: string }[]) => {
+    setTimePosCallback((t) => mainWindow?.webContents.send('mpv:timePos', t))
+    await startMpv(url, computePhysicalBounds(cssRect), externalPlayers)
+    const duration = await getMpvDuration()
+    return { duration }
+  })
+  ipcMain.handle('mpv:stop', () => stopMpv())
+  ipcMain.handle('mpv:bounds', (_e, cssRect: { left: number; top: number; width: number; height: number }) => setBoundsMpv(computePhysicalBounds(cssRect)))
+  ipcMain.handle('mpv:seek', (_e, t: number) => seekMpv(t))
+  ipcMain.handle('mpv:pause', () => pauseMpv())
+  ipcMain.handle('mpv:resume', () => resumeMpv())
+
   startVodProxy().catch((err) => console.error('[vodProxy] Failed to start:', err))
   createWindow()
   if (mainWindow) castService.initCastService(mainWindow.webContents)
@@ -109,7 +157,9 @@ app.whenReady().then(() => {
 
 app.on('before-quit', () => {
   castService.destroyCastService()
+  stopAllHlsSessions()
   stopVodProxy()
+  stopMpv()
 })
 
 app.on('window-all-closed', () => {

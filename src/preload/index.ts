@@ -46,9 +46,29 @@ const api = {
   updater: {
     download: (url: string) => ipcRenderer.invoke('updater:download', url),
   },
-  // VOD proxy — returns the localhost port of the transcoding proxy
+  // VOD proxy
   vod: {
     getProxyPort: (): Promise<number | null> => ipcRenderer.invoke('vod:proxyPort'),
+    startHls: (url: string, opts?: { seekTime?: number; forceEncode?: boolean }): Promise<{ sessionId: string; playlistUrl: string }> =>
+      ipcRenderer.invoke('vod:startHls', url, opts),
+    stopHls: (sessionId: string): Promise<void> => ipcRenderer.invoke('vod:stopHls', sessionId),
+  },
+  // MPV native player
+  mpv: {
+    start: (url: string, cssRect: { left: number; top: number; width: number; height: number }, externalPlayers: { name: string; path: string }[]) =>
+      ipcRenderer.invoke('mpv:start', url, cssRect, externalPlayers),
+    stop: () => ipcRenderer.invoke('mpv:stop'),
+    setBounds: (cssRect: { left: number; top: number; width: number; height: number }) =>
+      ipcRenderer.invoke('mpv:bounds', cssRect),
+    seek: (t: number) => ipcRenderer.invoke('mpv:seek', t),
+    pause: () => ipcRenderer.invoke('mpv:pause'),
+    resume: () => ipcRenderer.invoke('mpv:resume'),
+    onTimePos: (cb: (t: number) => void) => {
+      ipcRenderer.on('mpv:timePos', (_e, t) => cb(t))
+    },
+    offTimePos: () => {
+      ipcRenderer.removeAllListeners('mpv:timePos')
+    },
   },
   // Casting (Chromecast + DLNA)
   cast: {

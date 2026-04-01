@@ -9,6 +9,12 @@ files:
 # Unpack ffmpeg-static binary from the asar archive so the main process can spawn it
 asarUnpack:
   - node_modules/ffmpeg-static/**
+# Bundle MPV for Windows — downloaded by scripts/download-mpv.js before build
+extraResources:
+  - from: resources/win/mpv.exe
+    to: mpv.exe
+    filter:
+      - "**/*"
 win:
   target:
     - target: nsis

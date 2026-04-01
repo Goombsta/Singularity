@@ -1,6 +1,6 @@
 {
   "name": "singularity",
-  "version": "1.4.3",
+  "version": "1.5.0",
   "description": "Singularity IPTV Player",
   "main": "out/main/index.js",
   "author": "Singularity",
@@ -9,7 +9,7 @@
     "postinstall": "patch-package",
     "dev": "electron-vite dev",
     "build": "electron-vite build && electron-builder",
-    "build:win": "electron-vite build && electron-builder --win",
+    "build:win": "node scripts/download-mpv.js && electron-vite build && electron-builder --win",
     "build:mac": "electron-vite build && electron-builder --mac",
     "preview": "electron-vite preview",
     "typecheck": "tsc --noEmit",
